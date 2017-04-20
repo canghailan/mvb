@@ -112,7 +112,7 @@ func CopyFileObjects(base string, root string, fileObjects []FileObject) {
 
 func WriteFileObject(base string, objectId string, data string) {
 	objectPath := GetObjectPath(base, objectId)
-	if err := os.MkdirAll(filepath.Dir(objectPath), os.ModeDir); err != nil {
+	if err := os.MkdirAll(filepath.Dir(objectPath), DefaultDirPerm); err != nil {
 		panic(err)
 	}
 	if err := ioutil.WriteFile(objectPath, []byte(data), DefaultPerm); err != nil {

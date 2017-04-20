@@ -9,7 +9,7 @@ import (
 )
 
 func Init(base string) {
-	if err := os.MkdirAll(GetObjectsPath(base), os.ModeDir); err != nil {
+	if err := os.MkdirAll(GetObjectsPath(base), DefaultDirPerm); err != nil {
 		panic(err)
 	}
 	log.Println("init")

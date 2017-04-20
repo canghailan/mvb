@@ -1,7 +1,7 @@
 package main
 
 import (
-	"./mvb"
+	"./common"
 	"fmt"
 	"flag"
 	"path/filepath"

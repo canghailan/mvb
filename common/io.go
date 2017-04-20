@@ -6,7 +6,8 @@ import (
 	"path/filepath"
 )
 
-const DefaultPerm = 0666
+const DefaultPerm = 0664
+const DefaultDirPerm = os.ModeDir | 0774
 
 func IsFileExist(path string) bool {
 	_, err := os.Stat(path)
@@ -21,7 +22,7 @@ func IsFileExist(path string) bool {
 }
 
 func CopyFile(from string, to string) {
-	err := os.MkdirAll(filepath.Dir(to), os.ModeDir)
+	err := os.MkdirAll(filepath.Dir(to), DefaultDirPerm)
 	if err != nil {
 		panic(err)
 	}
