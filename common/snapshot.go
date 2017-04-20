@@ -2,31 +2,20 @@ package mvb
 
 import (
 	"bufio"
-	"bytes"
 	"io"
 	"os"
 	"time"
+	"path/filepath"
 )
 
-func ParseFileObject(line string) *FileObject {
+func ParseSnapshotFileObject(line string) *FileObject {
 	objectId := line[:40]
-	objectKey := line[41:]
+	objectKey := line[41:len(line) - 1]
 	return &FileObject{ObjectId: objectId, ObjectKey: objectKey}
 }
 
-func StringifyFileObject(fileObject *FileObject) string {
+func StringifySnapshotFileObject(fileObject *FileObject) string {
 	return fileObject.ObjectId + " " + fileObject.ObjectKey + "\n"
-}
-
-func StringifyFileObjects(fileObjects []FileObject) string {
-	var buffer bytes.Buffer
-	for _, fileObject := range fileObjects {
-		buffer.WriteString(fileObject.ObjectId)
-		buffer.WriteString(" ")
-		buffer.WriteString(fileObject.ObjectKey)
-		buffer.WriteString("\n")
-	}
-	return buffer.String()
 }
 
 type SnapshotReader struct {
@@ -35,20 +24,22 @@ type SnapshotReader struct {
 	r *bufio.Reader
 }
 
-func NewSnapshotReader(base string, objectId string) (*SnapshotReader, error) {
-	f, err := os.Open(base)
+func NewSnapshotReader(path string) *SnapshotReader {
+	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
-	return &SnapshotReader{f: f, r: bufio.NewReader(f)}, nil
+	return &SnapshotReader{f: f, r: bufio.NewReader(f)}
 }
 
-func (ir *SnapshotReader) ReadFileObject() (*FileObject, error) {
+func (ir *SnapshotReader) ReadFileObject() *FileObject {
 	line, err := ir.r.ReadString('\n')
-	if err != nil {
-		return nil, err
+	if err == io.EOF {
+		return nil
+	} else {
+		panic(err)
 	}
-	return ParseFileObject(line), nil
+	return ParseSnapshotFileObject(line)
 }
 
 func (ir *SnapshotReader) Close() error {
@@ -58,30 +49,56 @@ func (ir *SnapshotReader) Close() error {
 type SnapshotWriter struct {
 	io.Closer
 	f *os.File
-	w *bufio.Writer
 }
 
-func NewSnapshotWriter(f *os.File) (*SnapshotWriter, error) {
-	return &SnapshotWriter{f: f, w: bufio.NewWriter(f)}, nil
+func NewSnapshotWriter(path string) *SnapshotWriter {
+	f, err := os.OpenFile(path, os.O_CREATE | os.O_TRUNC | os.O_WRONLY, DefaultPerm)
+	if err != nil {
+		panic(err)
+	}
+	return &SnapshotWriter{f: f}
 }
 
-func (iw *SnapshotWriter) WriteSnapshot(snapshot *Snapshot) error {
-	_, err := iw.w.WriteString(StringifySnapshot(snapshot))
+func (iw *SnapshotWriter) WriteFileObject(fileObject *FileObject) error {
+	_, err := iw.f.WriteString(StringifySnapshotFileObject(fileObject))
 	return err
 }
 
-func (iw *SnapshotWriter) Flush() error {
-	return iw.w.Flush()
-}
-
 func (iw *SnapshotWriter) Close() error {
-	if err := iw.w.Flush(); err != nil {
-		return err
-	}
 	return iw.f.Close()
 }
 
 type Snapshot struct {
 	ObjectId  string
 	Timestamp time.Time
+}
+
+func CreateSnapshot(at time.Time) *Snapshot {
+	temp := GetPath(".snapshot")
+	r := NewFileObjectListReader()
+	defer r.Close()
+	w := NewSnapshotWriter(temp)
+	defer w.Close()
+	for {
+		f := r.ReadFileObject()
+		if f == nil {
+			break
+		}
+		w.WriteFileObject(f)
+	}
+
+	objectId := GetFileObjectId(temp)
+	if IsObjectExist(objectId) {
+		return &Snapshot{ObjectId:objectId}
+	}
+
+	objectPath := GetObjectPath(objectId)
+	if err := os.Mkdir(filepath.Dir(objectPath), DefaultDirPerm); err != nil {
+		panic(err)
+	}
+	if err := os.Rename(temp, objectPath); err != nil {
+		panic(err)
+	}
+
+	return &Snapshot{ObjectId: objectId, Timestamp: at}
 }

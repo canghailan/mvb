@@ -2,9 +2,8 @@ package main
 
 import (
 	"./common"
-	"flag"
 	"fmt"
-	"path/filepath"
+	"flag"
 )
 
 func main() {
@@ -15,22 +14,18 @@ func main() {
 	}()
 
 	flag.Parse()
-	base, err := filepath.Abs(".")
-	if err != nil {
-		panic(err)
-	}
 
 	command := flag.Arg(0)
 	switch command {
 	case "init":
 		{
-			mvb.Init(base)
+			root:= flag.Arg(1)
+			mvb.Init(root)
 			break
 		}
 	case "backup":
 		{
-			root := flag.Arg(1)
-			mvb.CreateSnapshot(base, root)
+			mvb.Backup()
 			break
 		}
 	}

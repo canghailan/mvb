@@ -3,18 +3,11 @@ package mvb
 import (
 	"bufio"
 	"io"
-	"log"
 	"os"
-	"path/filepath"
 	"time"
 )
 
-const ISO8601 = "20060102150405-0700"
 const lineLen = len(ObjectId0 + " " + ISO8601 + "\n")
-
-func GetIndexPath(base string) string {
-	return filepath.Join(base, "index")
-}
 
 func ParseSnapshot(line string) *Snapshot {
 	objectId := line[:40]
@@ -29,169 +22,105 @@ func StringifySnapshot(snapshot *Snapshot) string {
 	return snapshot.ObjectId + " " + snapshot.Timestamp.Format(ISO8601) + "\n"
 }
 
-type IndexReader interface {
-	ReadSnapshot() (*Snapshot, error)
-	ReadSnapshots(n int) ([]Snapshot, error)
-}
-
-type AbstractIndexReader struct {
-	IndexReader
-}
-
-func (ir *AbstractIndexReader) ReadSnapshots(limit int) ([]Snapshot, error) {
-	if limit < 0 {
-		limit = int(^uint(0) >> 1) // max int
-	}
-	var snapshots []Snapshot
-	for {
-		s, err := ir.ReadSnapshot()
-		if err != nil {
-			if err == io.EOF {
-				return snapshots, nil
-			} else {
-				return nil, err
-			}
-		}
-		snapshots = append(snapshots, *s)
-		if len(snapshots) >= limit {
-			return snapshots, nil
-		}
-	}
-	return snapshots, nil
-}
-
-type IndexDefaultReader struct {
-	AbstractIndexReader
+type IndexReader struct {
 	io.Closer
-	f *os.File
-	r *bufio.Reader
+	file      *os.File
+	direction int
+	offset    int64
+	buffer    []byte
 }
 
-func NewIndexReader(base string) (*IndexDefaultReader, error) {
-	f, err := os.Open(GetIndexPath(base))
-	if err != nil {
-		return nil, err
-	}
-	return &IndexDefaultReader{f: f, r: bufio.NewReader(f)}, nil
+func (ir *IndexReader) forward(n int) {
+	ir.offset += int64(ir.direction * n * lineLen)
 }
 
-func (ir *IndexDefaultReader) SkipSnapshot(n int) error {
-	bytes := n * lineLen
-	for {
-		discarded, err := ir.r.Discard(bytes)
-		if err != nil {
-			return err
-		}
-		bytes -= discarded
-		if bytes == 0 {
-			return nil
-		}
-	}
+func (ir *IndexReader) SkipSnapshot(n int) {
+	ir.forward(n)
 }
 
-func (ir *IndexDefaultReader) ReadSnapshot() (*Snapshot, error) {
-	line, err := ir.r.ReadString('\n')
-	if err != nil {
-		return nil, err
-	}
-	return ParseSnapshot(line), nil
-}
-
-func (ir *IndexDefaultReader) Close() error {
-	return ir.f.Close()
-}
-
-type IndexReverseReader struct {
-	AbstractIndexReader
-	io.Closer
-	f      *os.File
-	offset int64
-	buf    []byte
-}
-
-func NewIndexReverseReader(base string) (*IndexReverseReader, error) {
-	f, err := os.Open(GetIndexPath(base))
-	if err != nil {
-		return nil, err
-	}
-	offset, err := f.Seek(0, io.SeekEnd)
-	if err != nil {
-		return nil, err
-	}
-	return &IndexReverseReader{f: f, offset: offset, buf: make([]byte, lineLen)}, nil
-}
-
-func (ir *IndexReverseReader) SkipSnapshot(n int) error {
-	ir.offset -= int64(n * lineLen)
+func (ir *IndexReader) ReadSnapshot() *Snapshot {
+	ir.forward(1)
 	if ir.offset < 0 {
-		return io.EOF
+		return nil
 	}
-	return nil
-}
-
-func (ir *IndexReverseReader) ReadSnapshot() (*Snapshot, error) {
-	ir.offset -= int64(lineLen)
-	if ir.offset < 0 {
-		return nil, io.EOF
-	}
-	n, err := ir.f.ReadAt(ir.buf, ir.offset)
+	n, err := ir.file.ReadAt(ir.buffer, ir.offset)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 	if n != lineLen {
 		panic("")
 	}
-	return ParseSnapshot(string(ir.buf)), nil
+	return ParseSnapshot(string(ir.buffer))
 }
 
-func (ir *IndexReverseReader) Close() error {
-	return ir.f.Close()
+func (ir *IndexReader) ReadSnapshots(limit int) []Snapshot {
+	if limit <= 0 {
+		limit = int(^uint(0) >> 1) // max int
+	}
+	var snapshots []Snapshot
+	for {
+		s := ir.ReadSnapshot()
+		if s == nil {
+			return snapshots
+		}
+		snapshots = append(snapshots, *s)
+		if len(snapshots) >= limit {
+			return snapshots
+		}
+	}
+}
+
+func NewIndexReader(direction int) *IndexReader {
+	f, err := os.Open(GetIndexPath())
+	if err != nil {
+		panic(err)
+	}
+	offset := int64(0)
+	if direction < 0 {
+		offset, err = f.Seek(0, os.SEEK_END)
+		if err != nil {
+			panic(err)
+		}
+	}
+	return &IndexReader{file: f, direction: direction, offset: offset, buffer: make([]byte, lineLen)}
+}
+
+func (ir *IndexReader) Close() error {
+	return ir.file.Close()
 }
 
 type IndexWriter struct {
 	io.Closer
-	f *os.File
-	w *bufio.Writer
+	file   *os.File
+	writer *bufio.Writer
 }
 
-func NewIndexWriter(base string) (*IndexWriter, error) {
-	f, err := os.OpenFile(GetIndexPath(base), os.O_CREATE|os.O_APPEND, DefaultPerm)
+func NewIndexWriter() *IndexWriter {
+	f, err := os.OpenFile(GetIndexPath(), os.O_WRONLY, DefaultPerm)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 	if _, err := f.Seek(0, io.SeekEnd); err != nil {
-		return nil, err
+		panic(err)
 	}
-	return &IndexWriter{f: f, w: bufio.NewWriter(f)}, nil
+	return &IndexWriter{file: f, writer: bufio.NewWriter(f)}
 }
 
-func (iw *IndexWriter) WriteSnapshot(snapshot *Snapshot) error {
-	_, err := iw.w.WriteString(StringifySnapshot(snapshot))
-	return err
+func (iw *IndexWriter) WriteSnapshot(snapshot *Snapshot) {
+	if _, err := iw.writer.WriteString(StringifySnapshot(snapshot)); err != nil {
+		panic(err)
+	}
 }
 
-func (iw *IndexWriter) Flush() error {
-	return iw.w.Flush()
+func (iw *IndexWriter) Flush() {
+	if err :=  iw.writer.Flush(); err != nil {
+		panic(err)
+	}
 }
 
 func (iw *IndexWriter) Close() error {
-	if err := iw.w.Flush(); err != nil {
-		return err
-	}
-	return iw.f.Close()
-}
-
-func AppendSnapshotToIndex(base string, snapshot *Snapshot) {
-	w, err := NewIndexWriter(base)
-	if err != nil {
+	if err :=  iw.writer.Flush(); err != nil {
 		panic(err)
 	}
-	defer w.Close()
-	if err := w.WriteSnapshot(snapshot); err != nil {
-		panic(err)
-	}
-	if err := w.Flush(); err != nil {
-		panic(err)
-	}
-	log.Println("update index")
+	return iw.file.Close()
 }

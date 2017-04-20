@@ -8,8 +8,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sort"
+	"time"
+	"fmt"
 	"strings"
+	"sync"
+	"bufio"
+	"strconv"
+	"sort"
 )
 
 const ObjectId0 = "0000000000000000000000000000000000000000" // hex, 20bits
@@ -17,6 +22,8 @@ const ObjectId0 = "0000000000000000000000000000000000000000" // hex, 20bits
 type FileObject struct {
 	ObjectId  string
 	ObjectKey string
+	ModTime time.Time
+	Size int64
 }
 
 type FileObjectsDiff struct {
@@ -33,15 +40,6 @@ func (s FileObjectSlice) Len() int           { return len(s) }
 func (s FileObjectSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 func (s FileObjectSlice) Less(i, j int) bool { return s[i].ObjectKey < s[j].ObjectKey }
 
-func GetObjectId(object []byte) string {
-	h := sha1.New()
-	_, err := h.Write(object)
-	if err != nil {
-		panic(err)
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
 func GetFileObjectId(path string) string {
 	f, err := os.Open(path)
 	if err != nil {
@@ -57,61 +55,45 @@ func GetFileObjectId(path string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func GetObjectsPath(base string) string {
-	return filepath.Join(base, "objects")
+func IsObjectExist(objectId string) bool {
+	return IsFileExist(GetObjectPath(objectId))
 }
 
-func GetObjectPath(base string, objectId string) string {
-	return filepath.Join(base, "objects", objectId[0:2], objectId[2:])
-}
-
-func IsObjectExist(base string, objectId string) bool {
-	return IsFileExist(GetObjectPath(base, objectId))
-}
-
-func ListFileObjects(root string) []FileObject {
-	var fileObjects FileObjectSlice
-	err := filepath.Walk(root, func(path string, f os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(root, path)
-		if rel == "." {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-
-		if f.IsDir() {
-			fileObjects = append(fileObjects, FileObject{ObjectId: ObjectId0, ObjectKey: rel + "/"})
-		} else {
-			fileObjects = append(fileObjects, FileObject{ObjectId: GetFileObjectId(path), ObjectKey: rel})
-		}
-		return nil
-	})
+func ParseFileObject(line string) *FileObject {
+	objectId := line[:40]
+	size, err := strconv.ParseInt(strings.TrimSpace(line[41:60]), 10, 64)
 	if err != nil {
 		panic(err)
 	}
-	sort.Sort(fileObjects)
-	return fileObjects
+	modTime,err := time.Parse(ISO8601, line[61:80])
+	if err != nil {
+		panic(err)
+	}
+	objectKey := line[81:len(line) - 1]
+	return &FileObject{ObjectId: objectId, ObjectKey: objectKey, ModTime:modTime,Size:size}
 }
 
-func CopyFileObjects(base string, root string, fileObjects []FileObject) {
-	for _, f := range fileObjects {
+func CopyFileObjects() {
+	src := GetLinkOfNowPath()
+	r := NewFileObjectListReader()
+	defer r.Close()
+	for {
+		f := r.ReadFileObject()
+		if f == nil {
+			break
+		}
 		if strings.HasSuffix(f.ObjectKey, "/") {
 			continue
 		}
-		if IsObjectExist(base, f.ObjectId) {
+		if IsObjectExist(f.ObjectId) {
 			continue
 		}
-		from := filepath.Join(root, f.ObjectKey)
-		to := GetObjectPath(base, f.ObjectId)
-		log.Printf("%s (add)", f.ObjectId)
-		CopyFile(from, to)
+		CopyFile(filepath.Join(src, f.ObjectKey), GetObjectPath(f.ObjectId))
 	}
 }
 
-func WriteFileObject(base string, objectId string, data string) {
-	objectPath := GetObjectPath(base, objectId)
+func WriteObject(base string, objectId string, data string) {
+	objectPath := GetObjectPath(objectId)
 	if err := os.MkdirAll(filepath.Dir(objectPath), DefaultDirPerm); err != nil {
 		panic(err)
 	}
@@ -123,4 +105,128 @@ func WriteFileObject(base string, objectId string, data string) {
 
 func DiffFileObjects(source []FileObject, target []FileObject) {
 
+}
+
+type FileObjectListReader struct {
+	io.Closer
+	f *os.File
+	r *bufio.Reader
+}
+
+func NewFileObjectListReader() *FileObjectListReader {
+	f, err := os.Open(GetListPath())
+	if err != nil {
+		panic(err)
+	}
+	return &FileObjectListReader{f: f, r: bufio.NewReader(f)}
+}
+
+func (ir *FileObjectListReader) ReadFileObject() *FileObject {
+	line, err := ir.r.ReadString('\n')
+	if err != nil {
+		if err == io.EOF {
+			return nil
+		} else {
+			panic(err)
+		}
+	}
+	return ParseFileObject(line)
+}
+
+func (ir *FileObjectListReader) Close() error {
+	return ir.f.Close()
+}
+
+type FileObjectListWriter struct {
+	io.Closer
+	f *os.File
+}
+
+func NewFileObjectListWriter() *FileObjectListWriter {
+	f, err := os.OpenFile(GetListPath(), os.O_CREATE | os.O_TRUNC | os.O_WRONLY, DefaultPerm)
+	if err != nil {
+		panic(err)
+	}
+	return &FileObjectListWriter{f: f}
+}
+
+func (ir *FileObjectListWriter) WriteFileObject(fileObject *FileObject)  {
+	_, err := fmt.Fprintf(ir.f, "%s %19d %s %s\n",
+		fileObject.ObjectId,
+		fileObject.Size,
+		fileObject.ModTime.Format(ISO8601),
+		fileObject.ObjectKey)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (ir *FileObjectListWriter) Close() error {
+	return ir.f.Close()
+}
+
+func MakeFileObjectList()  {
+	root, err := filepath.EvalSymlinks(GetLinkOfNowPath())
+	if err != nil {
+		panic(err)
+	}
+
+	w := NewFileObjectListWriter()
+	defer w.Close()
+
+	var wg sync.WaitGroup
+	filepath.Walk(root, func(path string, f os.FileInfo, err error) error {
+		if err != nil {
+			panic(err)
+		}
+		rel, _ := filepath.Rel(root, path)
+		if rel == "." {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+
+		wg.Add(1)
+		go func() {
+			if f.IsDir() {
+				w.WriteFileObject(&FileObject{
+					ObjectId:ObjectId0,
+					Size:0,
+					ModTime:f.ModTime(),
+					ObjectKey:rel + "/"})
+			} else {
+				w.WriteFileObject(&FileObject{
+					ObjectId:GetFileObjectId(path),
+					Size:f.Size(),
+					ModTime:f.ModTime(),
+					ObjectKey:rel})
+			}
+			wg.Done()
+		}()
+		return nil
+	})
+	wg.Wait()
+	SortFileObjectList()
+}
+
+func SortFileObjectList()  {
+	var fileObjects FileObjectSlice
+	func() {
+		r := NewFileObjectListReader()
+		defer r.Close()
+		for {
+			f := r.ReadFileObject()
+			if f == nil {
+				break
+			}
+			fileObjects = append(fileObjects, *f)
+		}
+	}()
+	sort.Sort(fileObjects)
+
+	w := NewFileObjectListWriter()
+	defer w.Close()
+
+	for _, f := range fileObjects {
+		w.WriteFileObject(&f)
+	}
 }
