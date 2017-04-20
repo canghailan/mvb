@@ -2,8 +2,8 @@ package main
 
 import (
 	"./common"
-	"fmt"
 	"flag"
+	"fmt"
 	"path/filepath"
 )
 
@@ -22,14 +22,16 @@ func main() {
 
 	command := flag.Arg(0)
 	switch command {
-	case "init": {
-		mvb.Init(base)
-		break
-	}
-	case "backup": {
-		root:= flag.Arg(1)
-		mvb.CreateSnapshot(base, root)
-		break
-	}
+	case "init":
+		{
+			mvb.Init(base)
+			break
+		}
+	case "backup":
+		{
+			root := flag.Arg(1)
+			mvb.CreateSnapshot(base, root)
+			break
+		}
 	}
 }

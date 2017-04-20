@@ -22,7 +22,7 @@ func ListSnapshot(base string, prefix string, offset int, limit int) []Snapshot 
 	}
 	var snapshots []Snapshot
 	n := 0
-	for  {
+	for {
 		s, err := r.ReadSnapshot()
 		if CheckError(err, IsEOF) {
 			return snapshots

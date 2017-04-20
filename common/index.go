@@ -3,10 +3,10 @@ package mvb
 import (
 	"bufio"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
-	"log"
 )
 
 const ISO8601 = "20060102150405-0700"

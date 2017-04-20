@@ -4,12 +4,12 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"io"
+	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"io/ioutil"
-	"log"
 )
 
 const ObjectId0 = "0000000000000000000000000000000000000000" // hex, 20bits
@@ -22,7 +22,7 @@ type FileObject struct {
 type FileObjectsDiff struct {
 	Source []FileObject
 	Target []FileObject
-	Add []FileObject
+	Add    []FileObject
 	Delete []FileObject
 	Modify []FileObject
 }
@@ -115,12 +115,12 @@ func WriteFileObject(base string, objectId string, data string) {
 	if err := os.MkdirAll(filepath.Dir(objectPath), DefaultDirPerm); err != nil {
 		panic(err)
 	}
-	if err := ioutil.WriteFile(objectPath, []byte(data), DefaultPerm); err != nil {
+	if err := ioutil.WriteFile(objectPath, []byte(data), DefaultObjectPerm); err != nil {
 		panic(err)
 	}
 	log.Printf("%s (add)", objectId)
 }
 
-func DiffFileObjects(source []FileObject, target []FileObject)  {
+func DiffFileObjects(source []FileObject, target []FileObject) {
 
 }

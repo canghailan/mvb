@@ -7,6 +7,7 @@ import (
 )
 
 const DefaultPerm = 0664
+const DefaultObjectPerm = 0444
 const DefaultDirPerm = os.ModeDir | 0774
 
 func IsFileExist(path string) bool {
@@ -27,7 +28,7 @@ func CopyFile(from string, to string) {
 		panic(err)
 	}
 
-	writer, err := os.OpenFile(to, os.O_CREATE|os.O_WRONLY, DefaultPerm)
+	writer, err := os.OpenFile(to, os.O_CREATE|os.O_WRONLY, DefaultObjectPerm)
 	if err != nil {
 		panic(err)
 	}

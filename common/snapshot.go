@@ -82,6 +82,6 @@ func (iw *SnapshotWriter) Close() error {
 }
 
 type Snapshot struct {
-	ObjectId    string
-	Timestamp   time.Time
+	ObjectId  string
+	Timestamp time.Time
 }
