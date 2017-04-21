@@ -75,17 +75,19 @@ type Snapshot struct {
 
 func CreateSnapshot(at time.Time) *Snapshot {
 	temp := GetPath(".snapshot")
-	r := NewFileObjectListReader()
-	defer r.Close()
-	w := NewSnapshotWriter(temp)
-	defer w.Close()
-	for {
-		f := r.ReadFileObject()
-		if f == nil {
-			break
+	func() {
+		r := NewFileObjectListReader()
+		defer r.Close()
+		w := NewSnapshotWriter(temp)
+		defer w.Close()
+		for {
+			f := r.ReadFileObject()
+			if f == nil {
+				break
+			}
+			w.WriteFileObject(f)
 		}
-		w.WriteFileObject(f)
-	}
+	}()
 
 	objectId := GetFileObjectId(temp)
 	if IsObjectExist(objectId) {

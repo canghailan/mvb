@@ -74,7 +74,7 @@ func ParseFileObject(line string) *FileObject {
 }
 
 func CopyFileObjects() {
-	src := GetLinkOfNowPath()
+	root := GetLink()
 	r := NewFileObjectListReader()
 	defer r.Close()
 	for {
@@ -88,7 +88,7 @@ func CopyFileObjects() {
 		if IsObjectExist(f.ObjectId) {
 			continue
 		}
-		CopyFile(filepath.Join(src, f.ObjectKey), GetObjectPath(f.ObjectId))
+		CopyFile(filepath.Join(root, f.ObjectKey), GetObjectPath(f.ObjectId))
 	}
 }
 
@@ -166,10 +166,7 @@ func (ir *FileObjectListWriter) Close() error {
 }
 
 func MakeFileObjectList()  {
-	root, err := filepath.EvalSymlinks(GetLinkOfNowPath())
-	if err != nil {
-		panic(err)
-	}
+	root := GetLink()
 
 	w := NewFileObjectListWriter()
 	defer w.Close()

@@ -18,8 +18,12 @@ func GetPath(rel string) string  {
 	return p
 }
 
-func GetBasePath() string {
+func GetBase() string {
 	return GetPath(".")
+}
+
+func GetLinkPath() string {
+	return GetPath("link")
 }
 
 func GetIndexPath() string {
@@ -38,29 +42,35 @@ func GetLinksPath() string {
 	return GetPath("links")
 }
 
-func GetLinkPath(snapshot Snapshot) string {
+func GetSnapshotLinkPath(snapshot Snapshot) string {
 	return  GetPath(filepath.Join("objects", ""))
-}
-
-func GetLinkOfNowPath() string {
-	return GetPath(filepath.Join("links", "now"))
 }
 
 func GetListPath() string {
 	return GetPath("list")
 }
 
+func GetLink() string {
+	f, err := os.Open(GetLinkPath())
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+	b, err := ioutil.ReadAll(f)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
+
 func Init(root string) {
-	println(1)
 	if err := os.MkdirAll(GetObjectsPath(), DefaultDirPerm); err != nil {
 		panic(err)
 	}
-	println(1)
 	if err := os.MkdirAll(GetLinksPath(), DefaultDirPerm); err != nil {
 		panic(err)
 	}
-	println(1)
-	if err := os.Symlink(root, GetLinkOfNowPath()); err != nil {
+	if err := ioutil.WriteFile(GetLinkPath(), []byte(root), DefaultPerm); err != nil {
 		panic(err)
 	}
 	if err := ioutil.WriteFile(GetIndexPath(), []byte(""), DefaultPerm); err != nil {
