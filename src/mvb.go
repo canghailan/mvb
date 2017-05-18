@@ -46,7 +46,7 @@ func restore(version string, path string) {
 
 // mvb link [version] [path]
 func link(version string, path string) {
-	fs := mvb.GetVersionFiles(version)
+	fs := mvb.GetVersionFiles(mvb.ResolveVersion(version))
 	for _, f := range fs {
 		if strings.HasSuffix(f.Path, "/") {
 			if err := os.Mkdir(filepath.Join(path, f.Path), os.ModeDir | 0755); err != nil {
@@ -84,6 +84,13 @@ func list() {
 	}
 }
 
+// mvb list [versions]
+func find(versions string)  {
+	for _, v := range mvb.FindIndexVersions(versions) {
+		os.Stdout.WriteString(v)
+	}
+}
+
 // mvb delete [version]
 func delete(version string) {
 	log.Fatal("delete: not supported")
@@ -101,6 +108,7 @@ mvb backup
 mvb restore [version] [path]
 mvb link [version] [path]
 mvb list
+mvb find [versions]
 mvb delete [versions]
 mvb gc`)
 }
@@ -112,6 +120,10 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "init":
+		if len(os.Args) < 3 {
+			message()
+			return
+		}
 		initialize(os.Args[2])
 	case "backup":
 		backup()
@@ -127,12 +139,22 @@ func main() {
 	case "link":
 		if len(os.Args) < 4 {
 			message()
-		} else {
-			link(os.Args[2], os.Args[3])
+			return
 		}
+		link(os.Args[2], os.Args[3])
 	case "list":
 		list()
+	case "find":
+		if len(os.Args) < 3 {
+			message()
+			return
+		}
+		find(os.Args[2])
 	case "delete":
+		if len(os.Args) < 3 {
+			message()
+			return
+		}
 		delete(os.Args[2])
 	case "gc":
 		gc()
