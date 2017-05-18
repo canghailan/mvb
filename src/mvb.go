@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// mvb init
-func initialize(root string) {
-	if err := ioutil.WriteFile("ref", []byte(root), 0644); err != nil {
+// mvb init [path]
+func initialize(path string) {
+	if err := ioutil.WriteFile("ref", []byte(path), 0644); err != nil {
 		log.Fatalf("init: %v", err)
 	}
 }
@@ -33,13 +33,15 @@ func backup() {
 	os.Stdout.WriteString(id)
 }
 
-// mvb restore [version] [root]
-func restore(version string, root string) {
-
+// mvb restore [version] [path]
+func restore(version string, path string) {
+	if path == "" {
+		path = mvb.GetRef()
+	}
 }
 
-// mvb link [version] [to]
-func link(version string, root string) {
+// mvb link [version] [path]
+func link(version string, path string) {
 
 }
 
@@ -85,5 +87,37 @@ mvb gc`)
 }
 
 func main() {
-	backup()
+	if len(os.Args) < 2 {
+		message()
+		return
+	}
+	switch os.Args[1] {
+	case "init":
+		initialize(os.Args[2])
+	case "backup":
+		backup()
+	case "restore":
+		switch len(os.Args) {
+		case 3:
+			restore(os.Args[2], "")
+		case 4:
+			restore(os.Args[2], os.Args[3])
+		default:
+			message()
+		}
+	case "link":
+		if len(os.Args) < 4 {
+			message()
+		} else {
+			link(os.Args[2], os.Args[3])
+		}
+	case "list":
+		list()
+	case "delete":
+		delete(os.Args[2])
+	case "gc":
+		gc()
+	default:
+		message()
+	}
 }
