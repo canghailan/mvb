@@ -37,6 +37,34 @@ func backup() {
 	fmt.Printf("backup: %s\n", id)
 }
 
+// mvb check
+func check()  {
+	n := mvb.GetIndexVersionCount()
+	v := mvb.GetIndexVersionAt(n - 1)
+	fs := mvb.GetVersionFiles(v)
+	for _, f := range fs {
+		if strings.HasSuffix(f.Path, "/") {
+			continue
+		}
+
+		src := filepath.Join(mvb.GetRef(), f.Path)
+		dst := mvb.GetObjectPath(f.DataDigest)
+
+		s, err := os.Stat(src)
+		if err != nil {
+			log.Fatalf("check: %v", err)
+		}
+		d, err := os.Stat(dst)
+		if err != nil {
+			log.Fatalf("check: %v", err)
+		}
+
+		if s.Size() != d.Size() {
+			fmt.Printf("%s %s\n", dst, f.Path)
+		}
+	}
+}
+
 // mvb restore [version] [path]
 func restore(version string, path string) {
 	if path == "" {
@@ -105,6 +133,7 @@ func message() {
 	println(`usage:
 mvb init [path]
 mvb backup
+mvb check
 mvb restore [version] [path]
 mvb link [version] [path]
 mvb list
@@ -127,6 +156,8 @@ func main() {
 		initialize(os.Args[2])
 	case "backup":
 		backup()
+	case "check":
+		check()
 	case "restore":
 		switch len(os.Args) {
 		case 3:

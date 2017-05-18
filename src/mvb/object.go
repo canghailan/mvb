@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"fmt"
+	"strings"
+	"sync"
 )
 
 func IsObjectExist(id string) bool {
@@ -20,22 +22,24 @@ func IsObjectExist(id string) bool {
 }
 
 func CopyFileObjects(fs []FileObject)  {
-	sem := make(chan int, 4 + 1)
-	sem <- 1
+	var wg sync.WaitGroup
+	sem := make(chan int, 4)
 	for _, f := range fs {
+		wg.Add(1)
 		sem <- 1
 		go func(f FileObject) {
 			CopyFileObject(f)
 			<-sem
+			wg.Done()
 		}(f)
 	}
-	<-sem
+	wg.Wait()
 	close(sem)
 }
 
 func CopyFileObject(f FileObject) {
 	id := f.DataDigest
-	if id == EMPTY_DIGEST {
+	if strings.HasSuffix(f.Path, "/") {
 		return
 	}
 	if IsObjectExist(id) {

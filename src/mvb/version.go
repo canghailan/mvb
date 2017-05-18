@@ -85,7 +85,6 @@ func GetFiles() []FileObject {
 		wg2.Add(1)
 		go func(ch chan *FileObject) {
 			if fi.IsDir() {
-				fmt.Printf("scan & skip %s\n", p)
 				ch <- &FileObject{Path: p + "/", DataDigest: EMPTY_DIGEST, MetadataDigest: EMPTY_DIGEST}
 			} else {
 				fmd := GetFileMetadataDigest(p, fi)

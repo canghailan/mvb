@@ -59,7 +59,7 @@ func FindIndexVersions(version string) (r []string)  {
 		v := line[:40]
 		t := line[41:]
 		if strings.HasPrefix(v, version) || strings.HasPrefix(t, version) {
-			r = append(r, line)
+			r = append(r, v)
 		}
 	}
 }
