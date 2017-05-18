@@ -72,7 +72,7 @@ func ResolveVersion(version string) string {
 	if len(vs) > 1 {
 		log.Fatal("ResolveVersion: too many versions")
 	}
-	return vs[1]
+	return vs[0]
 }
 
 func AddVersionToIndex(id string, t time.Time) string {
