@@ -24,6 +24,13 @@ type FileObject struct {
 	MetadataDigest string
 }
 
+type FileDiff struct {
+	Type string
+	Path string
+	DataDigest string
+	MetadataDigest string
+}
+
 type FileObjectSlice []FileObject
 
 func (s FileObjectSlice) Len() int           { return len(s) }

@@ -22,7 +22,7 @@ func initialize(path string) {
 // mvb backup
 func backup() {
 	t := time.Now()
-	fs := mvb.GetFiles()
+	fs := mvb.GetFileObjects(mvb.GetRef())
 	v := mvb.ToVersionText(fs)
 	id := mvb.Sha1([]byte(v))
 
@@ -41,7 +41,7 @@ func backup() {
 func check()  {
 	n := mvb.GetIndexVersionCount()
 	v := mvb.GetIndexVersionAt(n - 1)
-	fs := mvb.GetVersionFiles(v)
+	fs := mvb.GetVersionFileObjects(v)
 	for _, f := range fs {
 		if strings.HasSuffix(f.Path, "/") {
 			continue
@@ -66,15 +66,23 @@ func check()  {
 }
 
 // mvb restore [version] [path]
-func restore(version string, path string) {
-	if path == "" {
-		path = mvb.GetRef()
+func restore(version string, root string) {
+	version = mvb.ResolveVersion(version)
+	if root == "" {
+		root = mvb.GetRef()
+	}
+
+	src := mvb.GetVersionFileObjects(version)
+	dst := mvb.GetFileObjectsWithoutDataDigest(root)
+	diff := mvb.DiffFileObjects(src, dst)
+	for _, f := range diff {
+		println(f.Path)
 	}
 }
 
 // mvb link [version] [path]
 func link(version string, path string) {
-	fs := mvb.GetVersionFiles(mvb.ResolveVersion(version))
+	fs := mvb.GetVersionFileObjects(mvb.ResolveVersion(version))
 	for _, f := range fs {
 		if strings.HasSuffix(f.Path, "/") {
 			if err := os.Mkdir(filepath.Join(path, f.Path), os.ModeDir | 0755); err != nil {
@@ -119,8 +127,13 @@ func find(versions string)  {
 	}
 }
 
+// mvb diff [version a] [version b]
+func diff(a string, b string)  {
+
+}
+
 // mvb delete [version]
-func delete(version string) {
+func del(version string) {
 	log.Fatal("delete: not supported")
 }
 
@@ -186,7 +199,7 @@ func main() {
 			message()
 			return
 		}
-		delete(os.Args[2])
+		del(os.Args[2])
 	case "gc":
 		gc()
 	default:

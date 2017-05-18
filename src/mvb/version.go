@@ -12,17 +12,6 @@ import (
 	"fmt"
 )
 
-func GetVersionFiles(version string) (files []FileObject) {
-	data, err := ioutil.ReadFile(GetObjectPath(version))
-	if err != nil {
-		log.Fatalf("GetVersionFiles: %v", err)
-	}
-	for _, line := range strings.Split(string(data[:len(data) - 1]), "\n") {
-		files = append(files, FileObject{Path: line[82:], DataDigest: line[:40], MetadataDigest: line[41:81]})
-	}
-	return files
-}
-
 func WriteVersionFile(id string, version string)  {
 	path := GetObjectPath(id)
 	if err := os.MkdirAll(filepath.Dir(path), os.ModeDir | 0774); err != nil {
@@ -33,8 +22,18 @@ func WriteVersionFile(id string, version string)  {
 	}
 }
 
-func GetFiles() []FileObject {
-	root := GetRef()
+func GetVersionFileObjects(version string) (files []FileObject) {
+	data, err := ioutil.ReadFile(GetObjectPath(version))
+	if err != nil {
+		log.Fatalf("GetVersionFileObjects: %v", err)
+	}
+	for _, line := range strings.Split(string(data[:len(data) - 1]), "\n") {
+		files = append(files, FileObject{Path: line[82:], DataDigest: line[:40], MetadataDigest: line[41:81]})
+	}
+	return files
+}
+
+func GetFileObjects(root string) []FileObject {
 	cache := getFastCache()
 
 	var files FileObjectSlice
@@ -52,12 +51,12 @@ func GetFiles() []FileObject {
 	var wg2 sync.WaitGroup
 	filepath.Walk(root, func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
-			log.Fatalf("GetFiles: %v", err)
+			log.Fatalf("GetFileObjects: %v", err)
 		}
 
 		p, err := filepath.Rel(root, path)
 		if err != nil {
-			log.Fatalf("GetFiles: %v", err)
+			log.Fatalf("GetFileObjects: %v", err)
 		}
 		if p == "." {
 			return nil
@@ -93,6 +92,35 @@ func GetFiles() []FileObject {
 	return files
 }
 
+func GetFileObjectsWithoutDataDigest(root string) []FileObject {
+	var files FileObjectSlice
+	filepath.Walk(root, func(path string, fi os.FileInfo, err error) error {
+		if err != nil {
+			log.Fatalf("GetFileObjectsWithoutDataDigest: %v", err)
+		}
+
+		p, err := filepath.Rel(root, path)
+		if err != nil {
+			log.Fatalf("GetFileObjectsWithoutDataDigest: %v", err)
+		}
+		if p == "." {
+			return nil
+		}
+		p = filepath.ToSlash(p)
+
+		if fi.IsDir() {
+			files = append(files, FileObject{Path: p + "/", MetadataDigest: EMPTY_DIGEST})
+		} else {
+			fmd := GetFileMetadataDigest(p, fi)
+			files = append(files, FileObject{Path: p + "/", MetadataDigest: fmd})
+		}
+
+		return nil
+	})
+	sort.Sort(files)
+	return files
+}
+
 func getFastCache() map[string]string {
 	cache := map[string]string{}
 
@@ -103,7 +131,7 @@ func getFastCache() map[string]string {
 
 	v := GetIndexVersionAt(n - 1)
 
-	for _, f := range GetVersionFiles(v) {
+	for _, f := range GetVersionFileObjects(v) {
 		if f.MetadataDigest != EMPTY_DIGEST {
 			cache[f.MetadataDigest] = f.DataDigest
 		}
@@ -122,4 +150,8 @@ func ToVersionText(files []FileObject) string {
 		buf.WriteString("\n")
 	}
 	return buf.String()
+}
+
+func DiffFileObjects(src []FileObject, dst []FileObject) []FileDiff {
+	return nil
 }

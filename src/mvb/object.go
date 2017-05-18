@@ -10,6 +10,8 @@ import (
 	"sync"
 )
 
+const COPY_THREADS = 4
+
 func IsObjectExist(id string) bool {
 	if _, err := os.Stat(GetObjectPath(id)); err != nil {
 		if os.IsNotExist(err) {
@@ -23,7 +25,7 @@ func IsObjectExist(id string) bool {
 
 func CopyFileObjects(fs []FileObject)  {
 	var wg sync.WaitGroup
-	sem := make(chan int, 4)
+	sem := make(chan int, COPY_THREADS)
 	for _, f := range fs {
 		wg.Add(1)
 		sem <- 1
@@ -49,26 +51,29 @@ func CopyFileObject(f FileObject) {
 
 	src := filepath.Join(GetRef(), f.Path)
 	dst := GetObjectPath(id)
+	CopyFile(src, dst)
 
+	fmt.Printf("copy %s\n", f.Path)
+}
+
+func CopyFile(src string, dst string)  {
 	if err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0774); err != nil {
-		log.Fatalf("CopyFileObject: %v", err)
+		log.Fatalf("Copy: %v", err)
 	}
 
-	w, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY, 0644)
+	w, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	if err != nil {
-		log.Fatalf("CopyFileObject: %v", err)
+		log.Fatalf("Copy: %v", err)
 	}
 	defer w.Close()
 
 	r, err := os.Open(src)
 	if err != nil {
-		log.Fatalf("CopyFileObject: %v", err)
+		log.Fatalf("Copy: %v", err)
 	}
 	defer r.Close()
 
 	if _, err = io.Copy(w, r); err != nil {
-		log.Fatalf("CopyFileObject: %v", err)
+		log.Fatalf("Copy: %v", err)
 	}
-
-	fmt.Printf("copy %s\n", f.Path)
 }
