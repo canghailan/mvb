@@ -33,27 +33,9 @@ func WriteVersionFile(id string, version string)  {
 	}
 }
 
-func getFileHashCache() map[string]string {
-	cache := map[string]string{}
-
-	n := GetIndexVersionCount()
-	if n == 0 {
-		return cache
-	}
-
- 	v := GetIndexVersionAt(n - 1)
-
-	for _, f := range GetVersionFiles(v) {
-		if f.MetadataDigest != EMPTY_DIGEST {
-			cache[f.MetadataDigest] = f.DataDigest
-		}
-	}
-	return cache
-}
-
 func GetFiles() []FileObject {
 	root := GetRef()
-	cache := getFileHashCache()
+	cache := getFastCache()
 
 	var files FileObjectSlice
 	var ch = make(chan *FileObject, 1024)
@@ -109,6 +91,24 @@ func GetFiles() []FileObject {
 
 	sort.Sort(files)
 	return files
+}
+
+func getFastCache() map[string]string {
+	cache := map[string]string{}
+
+	n := GetIndexVersionCount()
+	if n == 0 {
+		return cache
+	}
+
+	v := GetIndexVersionAt(n - 1)
+
+	for _, f := range GetVersionFiles(v) {
+		if f.MetadataDigest != EMPTY_DIGEST {
+			cache[f.MetadataDigest] = f.DataDigest
+		}
+	}
+	return cache
 }
 
 func ToVersionText(files []FileObject) string {
