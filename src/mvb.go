@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 	"fmt"
+	"strings"
+	"path/filepath"
 )
 
 // mvb init [path]
@@ -44,7 +46,22 @@ func restore(version string, path string) {
 
 // mvb link [version] [path]
 func link(version string, path string) {
-
+	fs := mvb.GetVersionFiles(version)
+	for _, f := range fs {
+		if strings.HasSuffix(f.Path, "/") {
+			if err := os.Mkdir(filepath.Join(path, f.Path), os.ModeDir | 0755); err != nil {
+				log.Fatalf("link: %v", err)
+			}
+		} else {
+			l, err := filepath.Abs(mvb.GetObjectPath(f.DataDigest))
+			if err != nil {
+				log.Fatalf("link: %v", err)
+			}
+			if err := os.Symlink(l, filepath.Join(path, f.Path)); err != nil {
+				log.Fatalf("link: %v", err)
+			}
+		}
+	}
 }
 
 // mvb list
