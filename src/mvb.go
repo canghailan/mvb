@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"time"
+	"fmt"
 )
 
 // mvb init [path]
@@ -13,6 +14,7 @@ func initialize(path string) {
 	if err := ioutil.WriteFile("ref", []byte(path), 0644); err != nil {
 		log.Fatalf("init: %v", err)
 	}
+	fmt.Printf("init: %s", path)
 }
 
 // mvb backup
@@ -23,14 +25,14 @@ func backup() {
 	id := mvb.Sha1([]byte(v))
 
 	if mvb.IsObjectExist(id) {
-		os.Stdout.WriteString(id)
+		fmt.Printf("backup & skip: %s\n", id)
 		return
 	}
 
 	mvb.CopyFileObjects(fs)
 	mvb.WriteVersionFile(id, v)
 	mvb.AddVersionToIndex(id, t)
-	os.Stdout.WriteString(id)
+	fmt.Printf("backup: %s\n", id)
 }
 
 // mvb restore [version] [path]

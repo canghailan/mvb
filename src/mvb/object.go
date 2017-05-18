@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sync"
+	"fmt"
 )
 
 func IsObjectExist(id string) bool {
@@ -20,20 +20,26 @@ func IsObjectExist(id string) bool {
 }
 
 func CopyFileObjects(fs []FileObject)  {
-	var wg sync.WaitGroup
+	sem := make(chan int, 4 + 1)
+	sem <- 1
 	for _, f := range fs {
-		wg.Add(1)
+		sem <- 1
 		go func(f FileObject) {
 			CopyFileObject(f)
-			wg.Done()
+			<-sem
 		}(f)
 	}
-	wg.Wait()
+	<-sem
+	close(sem)
 }
 
 func CopyFileObject(f FileObject) {
 	id := f.DataDigest
-	if id == EMPTY_DIGEST || IsObjectExist(id) {
+	if id == EMPTY_DIGEST {
+		return
+	}
+	if IsObjectExist(id) {
+		fmt.Printf("copy & skip %s\n", f.Path)
 		return
 	}
 
@@ -59,4 +65,6 @@ func CopyFileObject(f FileObject) {
 	if _, err = io.Copy(w, r); err != nil {
 		log.Fatalf("CopyFileObject: %v", err)
 	}
+
+	fmt.Printf("copy %s\n", f.Path)
 }

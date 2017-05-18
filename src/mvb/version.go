@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"bytes"
+	"fmt"
 )
 
 func GetVersionFiles(version string) (files []FileObject) {
@@ -17,7 +18,7 @@ func GetVersionFiles(version string) (files []FileObject) {
 		log.Fatalf("GetVersionFiles: %v", err)
 	}
 	for _, line := range strings.Split(string(data[:len(data) - 1]), "\n") {
-		files = append(files, FileObject{Path: line[:82], DataDigest: line[:40], MetadataDigest: line[41:81]})
+		files = append(files, FileObject{Path: line[82:], DataDigest: line[:40], MetadataDigest: line[41:81]})
 	}
 	return files
 }
@@ -32,8 +33,8 @@ func WriteVersionFile(id string, version string)  {
 	}
 }
 
-func getFileHashCache() map[string]*FileObject {
-	cache := map[string]*FileObject{}
+func getFileHashCache() map[string]string {
+	cache := map[string]string{}
 
 	n := GetIndexVersionCount()
 	if n == 0 {
@@ -44,7 +45,7 @@ func getFileHashCache() map[string]*FileObject {
 
 	for _, f := range GetVersionFiles(v) {
 		if f.MetadataDigest != EMPTY_DIGEST {
-			cache[f.MetadataDigest] = &f
+			cache[f.MetadataDigest] = f.DataDigest
 		}
 	}
 	return cache
@@ -84,15 +85,17 @@ func GetFiles() []FileObject {
 		wg2.Add(1)
 		go func(ch chan *FileObject) {
 			if fi.IsDir() {
-				ch <- &FileObject{Path: p + "/", DataDigest: EMPTY_DIGEST, MetadataDigest: EMPTY_DIGEST}
+\				ch <- &FileObject{Path: p + "/", DataDigest: EMPTY_DIGEST, MetadataDigest: EMPTY_DIGEST}
 			} else {
 				fmd := GetFileMetadataDigest(p, fi)
-				f := cache[fmd]
-				if f == nil || f.Path != p {
-					fdd := GetFileDataDigest(path)
-					f = &FileObject{Path: p, DataDigest: fdd, MetadataDigest: fmd}
+				fdd := cache[fmd]
+				if fdd == "" {
+					fmt.Printf("scan %s\n", p)
+					fdd = GetFileDataDigest(path)
+				} else {
+					fmt.Printf("scan & skip %s\n", p)
 				}
-				ch <- f
+				ch <- &FileObject{Path: p, DataDigest: fdd, MetadataDigest: fmd}
 			}
 			wg2.Done()
 		}(ch)
