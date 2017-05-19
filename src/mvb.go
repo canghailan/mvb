@@ -142,7 +142,9 @@ func diff(versionA string, versionB string) {
 
 	var fileObjectsB []mvb.FileObject
 	if versionB == "" {
-		fileObjectsB = mvb.GetFileObjects(mvb.GetRef())
+		root := mvb.GetRef()
+		fileObjectsB = mvb.GetFileObjects(root)
+		mvb.DigestFileObjects(root, fileObjectsB)
 	} else {
 		versionB = mvb.ResolveVersion(versionB)
 		fileObjectsB = mvb.GetVersionFileObjects(versionB)
@@ -219,9 +221,25 @@ func restore(version string, root string) {
 
 	src := mvb.GetFileObjects(root)
 	dst := mvb.GetVersionFileObjects(version)
+
+	mvb.FastDigestFileObjects(src, dst)
+	mvb.DigestFileObjects(root, src)
+
 	diffFileObjects := mvb.DiffFileObjects(src, dst)
-	for _, f := range diffFileObjects {
-		fmt.Printf("%s %s\n", f.Type, f.Path)
+	for i := len(diffFileObjects) - 1; i>=0;i-- {
+		f := diffFileObjects[i]
+		p := filepath.Join(root, f.Path)
+
+		mvb.Verbosef("%s %s\n", f.Type, f.Path)
+		if f.Type == "+" || f.Type == "*" {
+			if !strings.HasSuffix(f.Path, "/") {
+				mvb.CopyFile(mvb.GetObjectPath(f.DataDigest), p)
+			}
+		} else if f.Type == "-" {
+			if err := os.Remove(p); err != nil {
+				mvb.Errorf("删除文件失败：%s", p)
+			}
+		}
 	}
 }
 

@@ -108,12 +108,11 @@ func FindIndexVersionRecordAt(a string) string {
 	if err != nil {
 		Errorf("版本格式错误：%s", a)
 	}
-	i += 1
 	if i > 0 {
 		return GetIndexVersionRecordAt(i - 1)
 	} else {
 		n := GetIndexVersionRecordCount()
-		return GetIndexVersionRecordAt(n  + i- 1)
+		return GetIndexVersionRecordAt(n  + i)
 	}
 }
 
@@ -234,7 +233,8 @@ func GetFileObjects(root string) []FileObject {
 }
 
 func GetRefFileObjects() []FileObject {
-	fileObjects := GetFileObjects(GetRef())
+	root := GetRef();
+	fileObjects := GetFileObjects(root)
 
 	n := GetIndexVersionRecordCount()
 	if n > 0 {
@@ -243,7 +243,7 @@ func GetRefFileObjects() []FileObject {
 		FastDigestFileObjects(fileObjects, lastVersionFileObjects)
 	}
 
-	DigestFileObjects(fileObjects)
+	DigestFileObjects(root, fileObjects)
 
 	return fileObjects
 }

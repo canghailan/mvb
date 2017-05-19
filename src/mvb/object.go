@@ -43,7 +43,7 @@ func FastDigestFileObjects(fileObjects []FileObject, cachedFileObjects []FileObj
 	}
 }
 
-func DigestFileObjects(fileObjects []FileObject) {
+func DigestFileObjects(root string, fileObjects []FileObject) {
 	var wg sync.WaitGroup
 	sem := make(chan int, MAX_GOS)
 	for i := range fileObjects {
@@ -52,7 +52,7 @@ func DigestFileObjects(fileObjects []FileObject) {
 			sem <- 1
 			wg.Add(1)
 			go func() {
-				DigestFileObject(f)
+				DigestFileObject(root, f)
 				wg.Done()
 				<-sem
 			}()
@@ -62,14 +62,14 @@ func DigestFileObjects(fileObjects []FileObject) {
 	close(sem)
 }
 
-func DigestFileObject(f *FileObject)  {
+func DigestFileObject(root string, f *FileObject)  {
 	if strings.HasSuffix(f.Path, "/") {
 		f.MetadataDigest = EMPTY_DIGEST
 		f.DataDigest = EMPTY_DIGEST
 		return
 	}
 
-	path := filepath.Join(GetRef(), f.Path)
+	path := filepath.Join(root, f.Path)
 	if f.MetadataDigest == "" {
 		fi, err := os.Stat(path)
 		if err != nil {
@@ -83,6 +83,10 @@ func DigestFileObject(f *FileObject)  {
 }
 
 func SearchFileObjects(fileObjects []FileObject, path string) *FileObject {
+	if len(fileObjects) == 0 {
+		return nil
+	}
+
 	start := 0
 	end := len(fileObjects)
 	for start <= end {
@@ -104,7 +108,7 @@ func DiffFileObjects(from []FileObject, to []FileObject) []DiffFileObject {
 		pf := SearchFileObjects(from, f.Path)
 		if pf == nil {
 			diffFileObjects = append(diffFileObjects, DiffFileObject{Type: "+", FileObject: f})
-		} else if pf.MetadataDigest != f.MetadataDigest {
+		} else if pf.DataDigest != f.DataDigest {
 			diffFileObjects = append(diffFileObjects, DiffFileObject{Type: "*", FileObject: f})
 		}
 	}
