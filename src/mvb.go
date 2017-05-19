@@ -19,30 +19,40 @@ func initialize(path string) {
 	fmt.Printf("init: %s", path)
 }
 
+// mvb preview
+func preview()  {
+	fileObjects := mvb.GetRefFileObjects()
+	snapshot := mvb.ToVersionSnapshot(fileObjects)
+	id := mvb.Sha1([]byte(snapshot))
+
+	println(snapshot)
+	println(id)
+}
+
 // mvb backup
 func backup() {
-	t := time.Now()
-	fs := mvb.GetFileObjects(mvb.GetRef())
-	v := mvb.ToVersionText(fs)
-	id := mvb.Sha1([]byte(v))
+	timestamp := time.Now()
+	fileObjects := mvb.GetRefFileObjects()
+	snapshot := mvb.ToVersionSnapshot(fileObjects)
+	id := mvb.Sha1([]byte(snapshot))
 
 	if mvb.IsObjectExist(id) {
 		fmt.Printf("backup & skip: %s\n", id)
 		return
 	}
 
-	mvb.CopyFileObjects(fs)
-	mvb.WriteVersionFile(id, v)
-	mvb.AddVersionToIndex(id, t)
+	mvb.CopyFileObjects(fileObjects)
+	mvb.WriteVersionFile(id, snapshot)
+	mvb.AddVersionToIndex(id, timestamp)
 	fmt.Printf("backup: %s\n", id)
 }
 
 // mvb check
 func check()  {
 	n := mvb.GetIndexVersionCount()
-	v := mvb.GetIndexVersionAt(n - 1)
-	fs := mvb.GetVersionFileObjects(v)
-	for _, f := range fs {
+	lastVersion := mvb.GetIndexVersionAt(n - 1)
+	fileObjects := mvb.GetVersionFileObjects(lastVersion)
+	for _, f := range fileObjects {
 		if strings.HasSuffix(f.Path, "/") {
 			continue
 		}
@@ -67,33 +77,47 @@ func check()  {
 
 // mvb restore [version] [path]
 func restore(version string, root string) {
-	version = mvb.ResolveVersion(version)
+	if version == "" {
+		n := mvb.GetIndexVersionCount()
+		version = mvb.GetIndexVersionAt(n - 1)
+	} else {
+		version = mvb.ResolveVersion(version)
+	}
 	if root == "" {
 		root = mvb.GetRef()
 	}
 
-	src := mvb.GetVersionFileObjects(version)
-	dst := mvb.GetFileObjectsWithoutDataDigest(root)
-	diff := mvb.DiffFileObjects(src, dst)
-	for _, f := range diff {
-		println(f.Path)
+	src := mvb.GetFileObjects(root)
+	dst := mvb.GetVersionFileObjects(version)
+	diffFileObjects := mvb.DiffFileObjects(src, dst)
+	for _, f := range diffFileObjects {
+		println(f.Type + " " + f.Path)
 	}
 }
 
 // mvb link [version] [path]
 func link(version string, path string) {
-	fs := mvb.GetVersionFileObjects(mvb.ResolveVersion(version))
-	for _, f := range fs {
+	fis, err := ioutil.ReadDir(path)
+	if err != nil {
+		log.Fatalf("link: %v", err)
+	}
+	if len(fis) > 0 {
+		log.Fatalf("link: %s is not empty dir", path)
+	}
+
+	version = mvb.ResolveVersion(version)
+	fileObjects := mvb.GetVersionFileObjects(version)
+	for _, f := range fileObjects {
 		if strings.HasSuffix(f.Path, "/") {
 			if err := os.Mkdir(filepath.Join(path, f.Path), os.ModeDir | 0755); err != nil {
 				log.Fatalf("link: %v", err)
 			}
 		} else {
-			l, err := filepath.Abs(mvb.GetObjectPath(f.DataDigest))
+			fileObject, err := filepath.Abs(mvb.GetObjectPath(f.DataDigest))
 			if err != nil {
 				log.Fatalf("link: %v", err)
 			}
-			if err := os.Symlink(l, filepath.Join(path, f.Path)); err != nil {
+			if err := os.Symlink(fileObject, filepath.Join(path, f.Path)); err != nil {
 				log.Fatalf("link: %v", err)
 			}
 		}
@@ -123,13 +147,32 @@ func list() {
 // mvb list [versions]
 func find(versions string)  {
 	for _, v := range mvb.FindIndexVersions(versions) {
-		os.Stdout.WriteString(v)
+		println(v)
 	}
 }
 
 // mvb diff [version a] [version b]
-func diff(a string, b string)  {
+func diff(versionA string, versionB string)  {
+	if versionA == "" {
+		n := mvb.GetIndexVersionCount()
+		versionA = mvb.GetIndexVersionAt(n - 1)
+	} else {
+		versionA = mvb.ResolveVersion(versionA)
+	}
+	fileObjectsA := mvb.GetVersionFileObjects(versionA)
 
+	var fileObjectsB []mvb.FileObject
+	if versionB == "" {
+		fileObjectsB = mvb.GetFileObjects(mvb.GetRef())
+	} else {
+		versionB = mvb.ResolveVersion(versionB)
+		fileObjectsB = mvb.GetVersionFileObjects(versionB)
+	}
+
+	diffFileObjects := mvb.DiffFileObjects(fileObjectsA, fileObjectsB)
+	for _, f := range diffFileObjects {
+		fmt.Printf("%s %s\n", f.Type, f.Path)
+	}
 }
 
 // mvb delete [version]
@@ -145,12 +188,14 @@ func gc() {
 func message() {
 	println(`usage:
 mvb init [path]
+mvb preview
 mvb backup
 mvb check
 mvb restore [version] [path]
 mvb link [version] [path]
 mvb list
 mvb find [versions]
+mvb diff [version a] [version b]
 mvb delete [versions]
 mvb gc`)
 }
@@ -167,12 +212,16 @@ func main() {
 			return
 		}
 		initialize(os.Args[2])
+	case "preview":
+		preview()
 	case "backup":
 		backup()
 	case "check":
 		check()
 	case "restore":
 		switch len(os.Args) {
+		case 2:
+			restore("", "")
 		case 3:
 			restore(os.Args[2], "")
 		case 4:
@@ -194,6 +243,17 @@ func main() {
 			return
 		}
 		find(os.Args[2])
+	case "diff":
+		switch len(os.Args) {
+		case 2:
+			diff("", "")
+		case 3:
+			diff(os.Args[2], "")
+		case 4:
+			diff(os.Args[2], os.Args[3])
+		default:
+			message()
+		}
 	case "delete":
 		if len(os.Args) < 3 {
 			message()

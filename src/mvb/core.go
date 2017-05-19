@@ -24,18 +24,20 @@ type FileObject struct {
 	MetadataDigest string
 }
 
-type FileDiff struct {
+type DiffFileObject struct {
+	FileObject
 	Type string
-	Path string
-	DataDigest string
-	MetadataDigest string
 }
 
 type FileObjectSlice []FileObject
-
 func (s FileObjectSlice) Len() int           { return len(s) }
 func (s FileObjectSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 func (s FileObjectSlice) Less(i, j int) bool { return s[i].Path < s[j].Path }
+
+type DiffFileObjectSlice []DiffFileObject
+func (s DiffFileObjectSlice) Len() int           { return len(s) }
+func (s DiffFileObjectSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s DiffFileObjectSlice) Less(i, j int) bool { return s[i].Path < s[j].Path }
 
 var ref string
 

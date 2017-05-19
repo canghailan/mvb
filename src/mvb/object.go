@@ -8,9 +8,10 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sort"
 )
 
-const COPY_THREADS = 4
+const MAX_GOS = 4
 
 func IsObjectExist(id string) bool {
 	if _, err := os.Stat(GetObjectPath(id)); err != nil {
@@ -23,16 +24,100 @@ func IsObjectExist(id string) bool {
 	return true
 }
 
-func CopyFileObjects(fs []FileObject)  {
+func FastDigestFileObjects(fileObjects []FileObject, cachedFileObjects []FileObject)  {
+	for i := range fileObjects {
+		f := SearchFileObjects(cachedFileObjects, fileObjects[i].Path)
+		if f != nil && f.MetadataDigest == fileObjects[i].MetadataDigest {
+			fileObjects[i].DataDigest = f.DataDigest
+		}
+	}
+}
+
+func DigestFileObjects(fileObjects []FileObject) {
 	var wg sync.WaitGroup
-	sem := make(chan int, COPY_THREADS)
-	for _, f := range fs {
-		wg.Add(1)
+	sem := make(chan int, MAX_GOS)
+	for i := range fileObjects {
+		f := &fileObjects[i]
+		if f.MetadataDigest == "" || f.DataDigest == "" {
+			sem <- 1
+			wg.Add(1)
+			go func() {
+				DigestFileObject(f)
+				wg.Done()
+				<-sem
+			}()
+		}
+	}
+	wg.Wait()
+	close(sem)
+}
+
+func DigestFileObject(f *FileObject)  {
+	if strings.HasSuffix(f.Path, "/") {
+		f.MetadataDigest = EMPTY_DIGEST
+		f.DataDigest = EMPTY_DIGEST
+		return
+	}
+
+	path := filepath.Join(GetRef(), f.Path)
+	if f.MetadataDigest == "" {
+		fi, err := os.Stat(path)
+		if err != nil {
+			log.Fatalf("DigestFileObject: %v", err)
+		}
+		f.MetadataDigest = GetFileMetadataDigest(f.Path, fi)
+	}
+	if f.DataDigest == "" {
+		f.DataDigest = GetFileDataDigest(path)
+	}
+}
+
+func SearchFileObjects(fileObjects []FileObject, path string) *FileObject {
+	start := 0
+	end := len(fileObjects)
+	for start <= end {
+		mid := start + (end - start) / 2
+		if fileObjects[mid].Path < path {
+			start = mid + 1
+		} else if fileObjects[mid].Path > path {
+			end = mid - 1
+		} else {
+			return &fileObjects[mid]
+		}
+	}
+	return nil
+}
+
+func DiffFileObjects(from []FileObject, to []FileObject) []DiffFileObject {
+	var diffFileObjects DiffFileObjectSlice
+	for _, f := range to {
+		pf := SearchFileObjects(from, f.Path)
+		if pf == nil {
+			diffFileObjects = append(diffFileObjects, DiffFileObject{Type: "+", FileObject: f})
+		} else if pf.MetadataDigest != f.MetadataDigest {
+			diffFileObjects = append(diffFileObjects, DiffFileObject{Type: "*", FileObject: f})
+		}
+	}
+	for _, f := range from {
+		pf := SearchFileObjects(to, f.Path)
+		if pf == nil {
+			diffFileObjects = append(diffFileObjects, DiffFileObject{Type: "-", FileObject: f})
+		}
+	}
+	sort.Sort(diffFileObjects)
+	return diffFileObjects
+}
+
+func CopyFileObjects(fileObjects []FileObject)  {
+	var wg sync.WaitGroup
+	sem := make(chan int, MAX_GOS)
+	for _, f := range fileObjects {
 		sem <- 1
+		wg.Add(1)
 		go func(f FileObject) {
 			CopyFileObject(f)
-			<-sem
 			wg.Done()
+			<-sem
 		}(f)
 	}
 	wg.Wait()
