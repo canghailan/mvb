@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,7 +15,7 @@ const ISO8601 = "20060102150405-0700"
 const EMPTY_DIGEST = "                                        "
 const DIGEST_LEN  = len(EMPTY_DIGEST)
 const VERSION_LINE = "da39a3ee5e6b4b0d3255bfef95601890afd80709 20060102150405-0700\n"
-const VERSION_LINE_LEN  = len(VERSION_LINE)
+const VERSION_RECORD_LEN = len(VERSION_LINE)
 
 type FileObject struct {
 	Path string
@@ -51,7 +50,7 @@ func GetRef() string {
 	if ref == "" {
 		data, err := ioutil.ReadFile("ref")
 		if err != nil {
-			log.Fatalf("GetRef: %v", err)
+			Errorf("GetRef: %v", err)
 		}
 		ref = string(data)
 	}
@@ -65,13 +64,13 @@ func GetObjectPath(id string) string {
 func GetFileDataDigest(path string) string {
 	f, err := os.Open(path)
 	if err != nil {
-		log.Fatalf("GetFileHash: %v", err)
+		Errorf("GetFileHash: %v", err)
 	}
 	defer f.Close()
 
 	h := sha1.New()
 	if _, err := io.Copy(h, f); err != nil {
-		log.Fatalf("GetFileHash: %v", err)
+		Errorf("GetFileHash: %v", err)
 	}
 
 	return hex.EncodeToString(h.Sum(nil))

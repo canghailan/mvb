@@ -2,10 +2,8 @@ package mvb
 
 import (
 	"io"
-	"log"
 	"os"
 	"path/filepath"
-	"fmt"
 	"strings"
 	"sync"
 	"sort"
@@ -18,10 +16,22 @@ func IsObjectExist(id string) bool {
 		if os.IsNotExist(err) {
 			return false
 		} else {
-			log.Fatalf("IsObjectExist: %v", err)
+			Errorf("IsObjectExist: %v", err)
 		}
 	}
 	return true
+}
+
+func CopyObject(id string, w *os.File)  {
+	r, err := os.Open(GetObjectPath(id))
+	if err != nil {
+		Errorf("CopyObject: %v", err)
+	}
+	defer r.Close()
+
+	if _, err = io.Copy(w, r); err != nil {
+		Errorf("CopyObject: %v", err)
+	}
 }
 
 func FastDigestFileObjects(fileObjects []FileObject, cachedFileObjects []FileObject)  {
@@ -63,7 +73,7 @@ func DigestFileObject(f *FileObject)  {
 	if f.MetadataDigest == "" {
 		fi, err := os.Stat(path)
 		if err != nil {
-			log.Fatalf("DigestFileObject: %v", err)
+			Errorf("DigestFileObject: %v", err)
 		}
 		f.MetadataDigest = GetFileMetadataDigest(f.Path, fi)
 	}
@@ -130,7 +140,7 @@ func CopyFileObject(f FileObject) {
 		return
 	}
 	if IsObjectExist(id) {
-		fmt.Printf("copy & skip %s\n", f.Path)
+		Verbosef("copy & skip %s\n", f.Path)
 		return
 	}
 
@@ -138,27 +148,27 @@ func CopyFileObject(f FileObject) {
 	dst := GetObjectPath(id)
 	CopyFile(src, dst)
 
-	fmt.Printf("copy %s\n", f.Path)
+	Verbosef("copy %s\n", f.Path)
 }
 
 func CopyFile(src string, dst string)  {
 	if err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0774); err != nil {
-		log.Fatalf("Copy: %v", err)
+		Errorf("Copy: %v", err)
 	}
 
 	w, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	if err != nil {
-		log.Fatalf("Copy: %v", err)
+		Errorf("Copy: %v", err)
 	}
 	defer w.Close()
 
 	r, err := os.Open(src)
 	if err != nil {
-		log.Fatalf("Copy: %v", err)
+		Errorf("Copy: %v", err)
 	}
 	defer r.Close()
 
 	if _, err = io.Copy(w, r); err != nil {
-		log.Fatalf("Copy: %v", err)
+		Errorf("Copy: %v", err)
 	}
 }
