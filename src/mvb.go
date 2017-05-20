@@ -19,11 +19,7 @@ var (
 	initCommand = app.Command("init", "初始化当前文件夹作为备份存储空间")
 	initPath    = initCommand.Arg("path", "要备份的文件夹").Required().String()
 
-	previewCommand = app.Command("preview", "预览将要备份的版本")
-
 	backupCommand = app.Command("backup", "备份")
-
-	checkCommand = app.Command("check", "检查最新存储的文件是否完整（与备份文件夹中的当前文件对比）")
 
 	restoreCommand = app.Command("restore", "还原")
 	restoreVersion = restoreCommand.Arg("version", "要还原的版本，默认为最新版本").Default("").String()
@@ -40,14 +36,18 @@ var (
 	getVersion = getCommand.Arg("version", "版本与路径同时为空时，读取版本反向索引；版本不为空时，读取版本特定数据").Default("").String()
 	getPath    = getCommand.Arg("path", "路径为空时，读取版本快照；路径不为空时，读取该版本文件内容").Default("").String()
 
+	deleteCommand = app.Command("delete", "删除指定的版本")
+	deleteVersion = deleteCommand.Arg("version", "版本").Required().String()
+
 	diffCommand  = app.Command("diff", "对比两个版本的差异")
 	diffVersionA = diffCommand.Arg("version a", "版本A，默认为最新版本").Default("").String()
 	diffVersionB = diffCommand.Arg("version b", "版本B，默认为将要备份的版本").Default("").String()
 
-	deleteCommand = app.Command("delete", "删除指定的版本")
-	deleteVersion = deleteCommand.Arg("version", "版本").Required().String()
+	previewCommand = app.Command("preview", "预览将要备份的版本")
 
-	gcCommand = app.Command("gc", "清理备份存储空间，删除无用文件")
+	checkCommand = app.Command("check", "校验备份文件完整性")
+
+	gcCommand = app.Command("gc", "清理备份存储空间，删除残留文件")
 )
 
 func main() {
