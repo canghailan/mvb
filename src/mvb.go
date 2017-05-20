@@ -158,18 +158,18 @@ func executeLinkCommand() {
 	}
 
 	version = mvb.ResolveVersionSha1(version)
-	fileObjects := mvb.GetVersionFiles(version)
-	for _, f := range fileObjects {
+	files := mvb.GetVersionFiles(version)
+	for _, f := range files {
 		if strings.HasSuffix(f.Path, "/") {
 			if err := os.Mkdir(filepath.Join(path, f.Path), os.ModeDir|0755); err != nil {
 				mvb.Errorf("%v", err)
 			}
 		} else {
-			fileObject, err := filepath.Abs(mvb.GetObjectPath(f.Sha1))
+			file, err := filepath.Abs(mvb.GetObjectPath(f.Sha1))
 			if err != nil {
 				mvb.Errorf("%v", err)
 			}
-			if err := os.Symlink(fileObject, filepath.Join(path, f.Path)); err != nil {
+			if err := os.Symlink(file, filepath.Join(path, f.Path)); err != nil {
 				mvb.Errorf("%v", err)
 			}
 		}
@@ -258,8 +258,8 @@ func executeDiffCommand() {
 		filesB = mvb.GetVersionFiles(versionB)
 	}
 
-	diffFileObjects := mvb.DiffFiles(filesA, filesB)
-	for _, f := range diffFileObjects {
+	diffFiles := mvb.DiffFiles(filesA, filesB)
+	for _, f := range diffFiles {
 		fmt.Printf("%s %s\n", f.Type, f.Path)
 	}
 }

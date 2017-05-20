@@ -48,6 +48,18 @@ func (ri *ReverseIndex) NextVersion() string {
 	return ""
 }
 
+func ParseIndexedVersion(a string) int {
+	i, err := strconv.Atoi(a[1:])
+	if err != nil {
+		Errorf("ParseIndexedVersion：%s", a)
+	}
+	if i > 0 {
+		return i - 1
+	} else {
+		return GetIndexVersionCount() + i
+	}
+}
+
 func WriteReverseIndexTo(w *os.File)  {
 	i, err := NewReverseIndex()
 	if err != nil {
@@ -136,18 +148,6 @@ func DeleteIndexVersion(pattern string)  {
 			}
 			w += int64(VERSION_LEN)
 		}
-	}
-}
-
-func ParseIndexedVersion(a string) int {
-	i, err := strconv.Atoi(a[1:])
-	if err != nil {
-		Errorf("ParseIndexedVersion：%s", a)
-	}
-	if i > 0 {
-		return i - 1
-	} else {
-		return GetIndexVersionCount() + i
 	}
 }
 

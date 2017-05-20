@@ -119,12 +119,8 @@ func GetFilesSha1(root string, files []FileMetadata) {
 }
 
 func SearchFile(files []FileMetadata, path string) *FileMetadata {
-	if len(files) == 0 {
-		return nil
-	}
-
 	start := 0
-	end := len(files)
+	end := len(files) - 1
 	for start <= end {
 		mid := start + (end-start)/2
 		if files[mid].Path < path {
