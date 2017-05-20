@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"sync"
 )
 
 var (
@@ -55,24 +56,24 @@ func main() {
 	switch command {
 	case initCommand.FullCommand():
 		executeInitCommand()
-	case listCommand.FullCommand():
-		executeListCommand()
-	case getCommand.FullCommand():
-		executeGetCommand()
-	case diffCommand.FullCommand():
-		executeDiffCommand()
-	case previewCommand.FullCommand():
-		executePreviewCommand()
 	case backupCommand.FullCommand():
 		executeBackupCommand()
-	case checkCommand.FullCommand():
-		executeCheckCommand()
 	case restoreCommand.FullCommand():
 		executeRestoreCommand()
 	case linkCommand.FullCommand():
 		executeLinkCommand()
+	case listCommand.FullCommand():
+		executeListCommand()
+	case getCommand.FullCommand():
+		executeGetCommand()
 	case deleteCommand.FullCommand():
 		executeDeleteCommand()
+	case diffCommand.FullCommand():
+		executeDiffCommand()
+	case previewCommand.FullCommand():
+		executePreviewCommand()
+	case checkCommand.FullCommand():
+		executeCheckCommand()
 	case gcCommand.FullCommand():
 		executeGcCommand()
 	}
@@ -82,9 +83,97 @@ func executeInitCommand() {
 	path := *initPath
 
 	if err := ioutil.WriteFile("ref", []byte(path), 0644); err != nil {
-		mvb.Errorf("init: %v", err)
+		mvb.Errorf("%v", err)
 	}
-	mvb.Verbosef("init: %s", path)
+	mvb.Verbosef("初始化路径: %s", path)
+}
+
+func executeBackupCommand() {
+	timestamp := time.Now()
+	files := mvb.GetRefFiles()
+	version := mvb.StringifyVersionObject(files)
+	versionSha1 := mvb.Sha1([]byte(version))
+
+	if !mvb.IsObjectExist(versionSha1) {
+		mvb.CopyObjects(files)
+		mvb.WriteVersionObject(versionSha1, version)
+		mvb.AddVersionToIndex(mvb.Version{Sha1: versionSha1, Timestamp: timestamp.Format(mvb.ISO8601)})
+	} else {
+		mvb.Verbosef("版本已存在： %s\n", versionSha1)
+	}
+
+	println(versionSha1)
+}
+
+func executeRestoreCommand() {
+	version := *restoreVersion
+	root := *restorePath
+
+	if version == "" {
+		version = mvb.GetLatestVersionSha1()
+		if version == "" {
+			mvb.Errorf("版本不存在：%s", *restoreVersion)
+		}
+	} else {
+		version = mvb.ResolveVersionSha1(version)
+	}
+	if root == "" {
+		root = mvb.GetRef()
+	}
+
+	src := mvb.GetFiles(root)
+	dst := mvb.GetVersionFiles(version)
+
+	mvb.FastGetFilesSha1(src, dst)
+	mvb.GetFilesSha1(root, src)
+
+	diffFiles := mvb.DiffFiles(src, dst)
+	for i := len(diffFiles) - 1; i>=0;i-- {
+		f := diffFiles[i]
+		p := filepath.Join(root, f.Path)
+
+		mvb.Verbosef("%s %s\n", f.Type, f.Path)
+		if f.Type == "+" || f.Type == "*" {
+			if !strings.HasSuffix(f.Path, "/") {
+				mvb.CopyFile(mvb.GetObjectPath(f.Sha1), p)
+			}
+		} else if f.Type == "-" {
+			if err := os.Remove(p); err != nil {
+				mvb.Errorf("删除文件失败：%s", p)
+			}
+		}
+	}
+}
+
+func executeLinkCommand() {
+	version := *linkVersion
+	path := *linkPath
+
+	fis, err := ioutil.ReadDir(path)
+	if err != nil {
+		mvb.Errorf("%v", err)
+	}
+	if len(fis) > 0 {
+		mvb.Errorf("%s 不是空文件夹", path)
+	}
+
+	version = mvb.ResolveVersionSha1(version)
+	fileObjects := mvb.GetVersionFiles(version)
+	for _, f := range fileObjects {
+		if strings.HasSuffix(f.Path, "/") {
+			if err := os.Mkdir(filepath.Join(path, f.Path), os.ModeDir|0755); err != nil {
+				mvb.Errorf("%v", err)
+			}
+		} else {
+			fileObject, err := filepath.Abs(mvb.GetObjectPath(f.Sha1))
+			if err != nil {
+				mvb.Errorf("%v", err)
+			}
+			if err := os.Symlink(fileObject, filepath.Join(path, f.Path)); err != nil {
+				mvb.Errorf("%v", err)
+			}
+		}
+	}
 }
 
 func executeListCommand() {
@@ -93,7 +182,7 @@ func executeListCommand() {
 	if pattern == "" {
 		mvb.WriteReverseIndexTo(os.Stdout)
 	} else if strings.HasPrefix(pattern, "v") {
-		r := mvb.FindIndexVersionAt(pattern[1:])
+		r := mvb.GetIndexVersionAt(mvb.ParseIndexedVersion(pattern))
 		println(r)
 	} else {
 		for _, r := range mvb.FindIndexVersions(pattern) {
@@ -135,31 +224,41 @@ func executeGetCommand() {
 	mvb.WriteObjectTo(file.Sha1, os.Stdout)
 }
 
+func executeDeleteCommand() {
+	pattern := *deleteVersion
+
+	if strings.HasPrefix(pattern, "v") {
+		mvb.DeleteIndexVersionAt(mvb.ParseIndexedVersion(pattern))
+	} else {
+		mvb.DeleteIndexVersion(pattern)
+	}
+}
+
 func executeDiffCommand() {
 	versionA := *diffVersionA
 	versionB := *diffVersionB
 
 	if versionA == "" {
 		versionA = mvb.GetLatestVersionSha1()
+		if versionA == "" {
+			mvb.Errorf("版本A不存在：%s", *diffVersionA)
+		}
 	} else {
 		versionA = mvb.ResolveVersionSha1(versionA)
 	}
-	if versionA == "" {
-		mvb.Errorf("版本A不存在：%s", versionA)
-	}
-	fileObjectsA := mvb.GetVersionFiles(versionA)
+	filesA := mvb.GetVersionFiles(versionA)
 
-	var fileObjectsB []mvb.FileMetadata
+	var filesB []mvb.FileMetadata
 	if versionB == "" {
 		root := mvb.GetRef()
-		fileObjectsB = mvb.GetFiles(root)
-		mvb.GetFilesSha1(root, fileObjectsB)
+		filesB = mvb.GetFiles(root)
+		mvb.GetFilesSha1(root, filesB)
 	} else {
 		versionB = mvb.ResolveVersionSha1(versionB)
-		fileObjectsB = mvb.GetVersionFiles(versionB)
+		filesB = mvb.GetVersionFiles(versionB)
 	}
 
-	diffFileObjects := mvb.DiffFiles(fileObjectsA, fileObjectsB)
+	diffFileObjects := mvb.DiffFiles(filesA, filesB)
 	for _, f := range diffFileObjects {
 		fmt.Printf("%s %s\n", f.Type, f.Path)
 	}
@@ -174,124 +273,92 @@ func executePreviewCommand() {
 	println(versionSha1)
 }
 
-func executeBackupCommand() {
-	timestamp := time.Now()
-	fileObjects := mvb.GetRefFiles()
-	snapshot := mvb.StringifyVersionObject(fileObjects)
-	id := mvb.Sha1([]byte(snapshot))
-
-	if !mvb.IsObjectExist(id) {
-		mvb.CopyObjects(fileObjects)
-		mvb.WriteVersionObject(id, snapshot)
-		mvb.AddVersionToIndex(mvb.Version{Sha1:id, Timestamp:timestamp.Format(mvb.ISO8601)})
-	} else {
-		mvb.Verbosef("版本已存在： %s\n", id)
-	}
-
-	println(id)
-}
-
 func executeCheckCommand() {
-	version := mvb.GetLatestVersionSha1()
-	if version == "" {
-		return
-	}
-	fileObjects := mvb.GetVersionFiles(version)
-	for _, f := range fileObjects {
-		if strings.HasSuffix(f.Path, "/") {
-			continue
-		}
-
-		src := filepath.Join(mvb.GetRef(), f.Path)
-		dst := mvb.GetObjectPath(f.Sha1)
-
-		s, err := os.Stat(src)
+	var wg sync.WaitGroup
+	sem := make(chan int, mvb.MAX_GOS)
+	filepath.Walk("objects", func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
-			mvb.Errorf("check: %v", err)
+			mvb.Errorf("%v", err)
 		}
-		d, err := os.Stat(dst)
+		if fi.IsDir() {
+			return nil
+		}
+		p, err := filepath.Rel("objects", path)
 		if err != nil {
-			mvb.Errorf("check: %v", err)
+			mvb.Errorf("%v", err)
 		}
 
-		if s.Size() != d.Size() {
-			fmt.Printf("%s %s\n", dst, f.Path)
-		}
-	}
-}
-
-func executeRestoreCommand() {
-	version := *restoreVersion
-	root := *restorePath
-
-	if version == "" {
-		version = mvb.GetLatestVersionSha1()
-	} else {
-		version = mvb.ResolveVersionSha1(version)
-	}
-	if root == "" {
-		root = mvb.GetRef()
-	}
-
-	src := mvb.GetFiles(root)
-	dst := mvb.GetVersionFiles(version)
-
-	mvb.FastGetFilesSha1(src, dst)
-	mvb.GetFilesSha1(root, src)
-
-	diffFileObjects := mvb.DiffFiles(src, dst)
-	for i := len(diffFileObjects) - 1; i>=0;i-- {
-		f := diffFileObjects[i]
-		p := filepath.Join(root, f.Path)
-
-		mvb.Verbosef("%s %s\n", f.Type, f.Path)
-		if f.Type == "+" || f.Type == "*" {
-			if !strings.HasSuffix(f.Path, "/") {
-				mvb.CopyFile(mvb.GetObjectPath(f.Sha1), p)
+		sem <- 1
+		wg.Add(1)
+		go func() {
+			s1 := p[:2] + p[3:]
+			s2 := mvb.GetFileSha1(path)
+			mvb.Verbosef("检查：%s\n", path)
+			if s1 != s2 {
+				println(path)
 			}
-		} else if f.Type == "-" {
-			if err := os.Remove(p); err != nil {
-				mvb.Errorf("删除文件失败：%s", p)
-			}
-		}
-	}
-}
-
-func executeLinkCommand() {
-	version := *linkVersion
-	path := *linkPath
-
-	fis, err := ioutil.ReadDir(path)
-	if err != nil {
-		mvb.Errorf("link: %v", err)
-	}
-	if len(fis) > 0 {
-		mvb.Errorf("link: %s is not empty dir", path)
-	}
-
-	version = mvb.ResolveVersionSha1(version)
-	fileObjects := mvb.GetVersionFiles(version)
-	for _, f := range fileObjects {
-		if strings.HasSuffix(f.Path, "/") {
-			if err := os.Mkdir(filepath.Join(path, f.Path), os.ModeDir|0755); err != nil {
-				mvb.Errorf("link: %v", err)
-			}
-		} else {
-			fileObject, err := filepath.Abs(mvb.GetObjectPath(f.Sha1))
-			if err != nil {
-				mvb.Errorf("link: %v", err)
-			}
-			if err := os.Symlink(fileObject, filepath.Join(path, f.Path)); err != nil {
-				mvb.Errorf("link: %v", err)
-			}
-		}
-	}
-}
-
-func executeDeleteCommand() {
-	mvb.DeleteIndexVersion(*deleteVersion)
+			wg.Done()
+			<-sem
+		}()
+		return nil
+	})
+	wg.Wait()
 }
 
 func executeGcCommand() {
-	mvb.Errorf("gc: not supported")
+	objects := map[string]bool{}
+
+	for _, v := range mvb.GetIndexVersions() {
+		s := mvb.ParseVersion(v).Sha1
+		objects[s] = true
+		for _, f := range mvb.GetVersionFiles(s) {
+			objects[f.Sha1] = true
+		}
+	}
+
+	filepath.Walk("objects", func(path string, fi os.FileInfo, err error) error {
+		if err != nil {
+			mvb.Errorf("%v", err)
+		}
+		if fi.IsDir() {
+			return nil
+		}
+		p, err := filepath.Rel("objects", path)
+		if err != nil {
+			mvb.Errorf("%v", err)
+		}
+
+
+		s := p[:2] + p[3:]
+		if _, ok := objects[s]; !ok {
+			println(s)
+			mvb.Verbosef("删除：%s\n", path)
+			if err := os.Remove(path); err != nil {
+				mvb.Errorf("%v", err)
+			}
+		} else {
+			mvb.Verbosef("保留：%s\n", path)
+		}
+		return nil
+	})
+
+	ls, err := ioutil.ReadDir("objects")
+	if err != nil {
+		mvb.Errorf("%v", err)
+	}
+	for _, f := range ls {
+		if f.IsDir() {
+			p := filepath.Join("objects", f.Name())
+			c, err := ioutil.ReadDir(p)
+			if err != nil {
+				mvb.Errorf("%v", err)
+			}
+			if len(c) == 0 {
+				mvb.Verbosef("删除：%s\n", p)
+				if err := os.Remove(p); err != nil {
+					mvb.Errorf("%v", err)
+				}
+			}
+		}
+	}
 }

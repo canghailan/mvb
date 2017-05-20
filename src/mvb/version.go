@@ -78,8 +78,80 @@ func AddVersionToIndex(version Version) {
 	f.WriteString(StringifyVersion(version))
 }
 
-func DeleteIndexVersion(pattern string)  {
+func DeleteIndexVersionAt(i int)  {
+	f, err := os.OpenFile("index", os.O_RDWR, 0644)
+	if err != nil {
+		Errorf("DeleteIndexVersionAt: %v", err)
+	}
+	defer f.Close()
 
+	w := int64(i)*int64(VERSION_LEN)
+	if _, err := f.Seek(w + int64(VERSION_LEN), os.SEEK_SET); err!= nil {
+		Errorf("DeleteIndexVersionAt: %v", err)
+	}
+
+	buffer := make([]byte, 4 * 1024)
+	for {
+		n, err := f.Read(buffer)
+		if err != nil {
+			if err == io.EOF {
+				if err := f.Truncate(w); err != nil {
+					Errorf("DeleteIndexVersionAt: %v", err)
+				}
+				break
+			}
+		}
+		f.WriteAt(buffer[:n], w)
+		w += int64(n)
+	}
+}
+
+func DeleteIndexVersion(pattern string)  {
+	f, err := os.OpenFile("index", os.O_RDWR, 0644)
+	if err != nil {
+		Errorf("DeleteIndexVersion: %v", err)
+	}
+	defer f.Close()
+
+	r := int64(0)
+	w := int64(0)
+
+	buffer := make([]byte, VERSION_LEN)
+	for {
+		if _, err = f.ReadAt(buffer, r); err != nil {
+			if err == io.EOF {
+				if err = f.Truncate(w); err != nil {
+					Errorf("DeleteIndexVersion: %v", err)
+				}
+				break
+			} else {
+				Errorf("DeleteIndexVersion: %v", err)
+			}
+		}
+
+		r += int64(VERSION_LEN)
+		v := string(buffer)
+		if !MatchVersion(pattern, ParseVersion(v[:len(v) -1])) {
+			if r != w {
+				if _, err := f.WriteAt(buffer, w); err != nil {
+					Errorf("DeleteIndexVersion: %v", err)
+				}
+			}
+			w += int64(VERSION_LEN)
+		}
+	}
+}
+
+func ParseIndexedVersion(a string) int {
+	i, err := strconv.Atoi(a[1:])
+	if err != nil {
+		Errorf("ParseIndexedVersion：%s", a)
+	}
+	if i > 0 {
+		return i - 1
+	} else {
+		return GetIndexVersionCount() + i
+	}
 }
 
 func GetIndexVersionCount() int {
@@ -94,6 +166,19 @@ func GetIndexVersionCount() int {
 	return int(fi.Size() / int64(VERSION_LEN))
 }
 
+func GetIndexVersions() []string {
+	data, err := ioutil.ReadFile("index")
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}
+		}
+		Errorf("GetIndexVersions: %v", err)
+	}
+	if len(data) == 0 {
+		return []string{}
+	}
+	return strings.Split(string(data[:len(data) - 1]), "\n")
+}
 
 func GetIndexVersionAt(i int) string {
 	f, err := os.Open("index")
@@ -106,19 +191,6 @@ func GetIndexVersionAt(i int) string {
 		Errorf("GetIndexVersionAt: %v", err)
 	}
 	return string(buf)
-}
-
-func FindIndexVersionAt(a string) string {
-	i, err := strconv.Atoi(a)
-	if err != nil {
-		Errorf("Version Format Error：%s", a)
-	}
-	if i > 0 {
-		return GetIndexVersionAt(i - 1)
-	} else {
-		n := GetIndexVersionCount()
-		return GetIndexVersionAt(n  + i)
-	}
 }
 
 func GetLatestVersionSha1() string {
@@ -164,7 +236,7 @@ func FindIndexVersions(pattern string) (r []string) {
 
 func ResolveVersions(pattern string) []string {
 	if strings.HasPrefix(pattern, "v") {
-		return []string{FindIndexVersionAt(pattern[1:])}
+		return []string{GetIndexVersionAt(ParseIndexedVersion(pattern))}
 	} else {
 		return FindIndexVersions(pattern)
 	}

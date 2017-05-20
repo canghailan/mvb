@@ -12,6 +12,7 @@ import (
 	"strings"
 )
 
+const MAX_GOS = 4
 const ISO8601 = "20060102150405-0700"
 const EMPTY_SIZE = "                   "
 const EMPTY_SHA1 = "                                        "

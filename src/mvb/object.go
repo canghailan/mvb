@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-const MAX_GOS = 4
-
 func IsObjectExist(objectSha1 string) bool {
 	if _, err := os.Stat(GetObjectPath(objectSha1)); err != nil {
 		if os.IsNotExist(err) {
