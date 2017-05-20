@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"io/ioutil"
 )
 
 func IsObjectExist(objectSha1 string) bool {
@@ -62,6 +63,24 @@ func WriteObjectTo(objectSha1 string, w *os.File) {
 
 	if _, err = io.Copy(w, r); err != nil {
 		Errorf("WriteObjectTo: %v", err)
+	}
+}
+
+func GetVersionFiles(version string) (files []FileMetadata) {
+	data, err := ioutil.ReadFile(GetObjectPath(version))
+	if err != nil {
+		Errorf("GetVersionFiles: %v", err)
+	}
+	return ParseVersionObject(string(data))
+}
+
+func WriteVersionObject(id string, snapshot string) {
+	path := GetObjectPath(id)
+	if err := os.MkdirAll(filepath.Dir(path), os.ModeDir|0774); err != nil {
+		Errorf("WriteVersionObject: %v", err)
+	}
+	if err := ioutil.WriteFile(path, []byte(snapshot), 0644); err != nil {
+		Errorf("WriteVersionObject: %v", err)
 	}
 }
 

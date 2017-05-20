@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sort"
 )
 
 const MAX_GOS = 4
@@ -88,6 +89,48 @@ func GetFileSha1(path string) string {
 	}
 
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func GetFiles(root string) []FileMetadata {
+	var files FileMetadataSlice
+	filepath.Walk(root, func(path string, fi os.FileInfo, err error) error {
+		if err != nil {
+			Errorf("GetFiles: %v", err)
+		}
+
+		p, err := filepath.Rel(root, path)
+		if err != nil {
+			Errorf("GetFiles: %v", err)
+		}
+		if p == "." {
+			return nil
+		}
+		p = filepath.ToSlash(p)
+
+		if fi.IsDir() {
+			p = p + "/"
+			files = append(files, FileMetadata{Path: p, ModTime: fi.ModTime().Format(ISO8601), Size: EMPTY_SIZE, Sha1: EMPTY_SHA1})
+		} else {
+			files = append(files, FileMetadata{Path: p, ModTime: fi.ModTime().Format(ISO8601), Size:fmt.Sprintf("%19d", fi.Size())})
+		}
+
+		return nil
+	})
+	sort.Sort(files)
+	return files
+}
+
+func GetRefFiles() []FileMetadata {
+	root := GetRef()
+	files := GetFiles(root)
+
+	if v := GetLatestVersionSha1(); v != "" {
+		FastGetFilesSha1(files, GetVersionFiles(v))
+	}
+
+	GetFilesSha1(root, files)
+
+	return files
 }
 
 func StringifyVersion(version Version) string {

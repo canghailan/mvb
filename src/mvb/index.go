@@ -4,11 +4,8 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"strconv"
-	"fmt"
 )
 
 type ReverseIndex struct {
@@ -251,64 +248,4 @@ func ResolveVersionSha1(pattern string) string {
 		Errorf("找到多个版本，请输入更精确的版本号：%s", pattern)
 	}
 	return ParseVersion(versions[0]).Sha1
-}
-
-func GetVersionFiles(version string) (files []FileMetadata) {
-	data, err := ioutil.ReadFile(GetObjectPath(version))
-	if err != nil {
-		Errorf("GetVersionFiles: %v", err)
-	}
-	return ParseVersionObject(string(data))
-}
-
-func WriteVersionObject(id string, snapshot string) {
-	path := GetObjectPath(id)
-	if err := os.MkdirAll(filepath.Dir(path), os.ModeDir|0774); err != nil {
-		Errorf("WriteVersionObject: %v", err)
-	}
-	if err := ioutil.WriteFile(path, []byte(snapshot), 0644); err != nil {
-		Errorf("WriteVersionObject: %v", err)
-	}
-}
-
-func GetFiles(root string) []FileMetadata {
-	var files FileMetadataSlice
-	filepath.Walk(root, func(path string, fi os.FileInfo, err error) error {
-		if err != nil {
-			Errorf("GetFiles: %v", err)
-		}
-
-		p, err := filepath.Rel(root, path)
-		if err != nil {
-			Errorf("GetFiles: %v", err)
-		}
-		if p == "." {
-			return nil
-		}
-		p = filepath.ToSlash(p)
-
-		if fi.IsDir() {
-			p = p + "/"
-			files = append(files, FileMetadata{Path: p, ModTime: fi.ModTime().Format(ISO8601), Size: EMPTY_SIZE, Sha1: EMPTY_SHA1})
-		} else {
-			files = append(files, FileMetadata{Path: p, ModTime: fi.ModTime().Format(ISO8601), Size:fmt.Sprintf("%19d", fi.Size())})
-		}
-
-		return nil
-	})
-	sort.Sort(files)
-	return files
-}
-
-func GetRefFiles() []FileMetadata {
-	root := GetRef()
-	files := GetFiles(root)
-
-	if v := GetLatestVersionSha1(); v != "" {
-		FastGetFilesSha1(files, GetVersionFiles(v))
-	}
-
-	GetFilesSha1(root, files)
-
-	return files
 }
