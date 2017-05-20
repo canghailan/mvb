@@ -89,6 +89,7 @@ func GetFilesSha1(root string, files []FileMetadata) {
 		sem <- 1
 		wg.Add(1)
 		go func(root string, f *FileMetadata) {
+			Verbosef("计算SHA1：%s\n", f.Path)
 			f.Sha1 = GetFileSha1(filepath.Join(root, f.Path))
 			wg.Done()
 			<-sem
