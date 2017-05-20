@@ -1,15 +1,14 @@
 package mvb
 
 import (
-	"bytes"
 	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 	"strconv"
+	"fmt"
 )
 
 type ReverseIndex struct {
@@ -39,84 +38,102 @@ func (ri *ReverseIndex) Close() error {
 	return nil
 }
 
-func (ri *ReverseIndex) NextVersionRecord() string {
-	ri.offset -= int64(VERSION_RECORD_LEN)
+func (ri *ReverseIndex) NextVersion() string {
+	ri.offset -= int64(VERSION_LEN)
 	if ri.offset >= 0 {
-		buffer := make([]byte, VERSION_RECORD_LEN)
+		buffer := make([]byte, VERSION_LEN)
 		_, err := ri.index.ReadAt(buffer, ri.offset)
 		if err != nil {
-			Errorf("读取索引文件错误：%v", err)
+			Errorf("NextVersion：%v", err)
 		}
-		return string(buffer[:VERSION_RECORD_LEN-1])
+		return string(buffer[:VERSION_LEN-1])
 	}
 	return ""
 }
 
-func GetIndexVersionRecordCount() int {
+func WriteReverseIndexTo(w *os.File)  {
+	i, err := NewReverseIndex()
+	if err != nil {
+		Errorf("WriteReverseIndexTo: %v", err)
+	}
+	defer i.Close()
+
+	for {
+		r := i.NextVersion()
+		if r == "" {
+			break
+		}
+		w.WriteString(r)
+		w.WriteString("\n")
+	}
+}
+
+func AddVersionToIndex(version Version) {
+	f, err := os.OpenFile("index", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		Errorf("AddVersionToIndex: %v", err)
+	}
+	defer f.Close()
+
+	f.WriteString(StringifyVersion(version))
+}
+
+func DeleteIndexVersion(pattern string)  {
+
+}
+
+func GetIndexVersionCount() int {
 	fi, err := os.Stat("index")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0
 		} else {
-			Errorf("GetIndexVersionRecordCount: %v", err)
+			Errorf("GetIndexVersionCount: %v", err)
 		}
 	}
-	return int(fi.Size() / int64(VERSION_RECORD_LEN))
+	return int(fi.Size() / int64(VERSION_LEN))
 }
 
 
-func GetIndexVersionRecordAt(i int) string {
+func GetIndexVersionAt(i int) string {
 	f, err := os.Open("index")
 	if err != nil {
 		Errorf("GetIndexVersionAt: %v", err)
 	}
 
-	buf := make([]byte, VERSION_RECORD_LEN-1)
-	if _, err = f.ReadAt(buf, int64(i)*int64(VERSION_RECORD_LEN)); err != nil {
+	buf := make([]byte, VERSION_LEN-1)
+	if _, err = f.ReadAt(buf, int64(i)*int64(VERSION_LEN)); err != nil {
 		Errorf("GetIndexVersionAt: %v", err)
 	}
 	return string(buf)
 }
 
-func GetIndexVersionAt(i int) string {
-	return GetIndexVersionRecordAt(i)[:DIGEST_LEN]
-}
-
-func AddVersionRecordToIndex(id string, t time.Time) string {
-	f, err := os.OpenFile("index", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		Errorf("AddVersionRecordToIndex: %v", err)
-	}
-	defer f.Close()
-
-	line := id + " " + t.Format(ISO8601) + "\n"
-	f.WriteString(line)
-
-	return id
-}
-
-func GetLatestVersion() string {
-	n := GetIndexVersionRecordCount()
-	if n == 0 {
-		Errorf("无最新版本")
-	}
-	return GetIndexVersionAt(n - 1)
-}
-
-func FindIndexVersionRecordAt(a string) string {
+func FindIndexVersionAt(a string) string {
 	i, err := strconv.Atoi(a)
 	if err != nil {
-		Errorf("版本格式错误：%s", a)
+		Errorf("Version Format Error：%s", a)
 	}
 	if i > 0 {
-		return GetIndexVersionRecordAt(i - 1)
+		return GetIndexVersionAt(i - 1)
 	} else {
-		n := GetIndexVersionRecordCount()
-		return GetIndexVersionRecordAt(n  + i)
+		n := GetIndexVersionCount()
+		return GetIndexVersionAt(n  + i)
 	}
 }
 
-func FindIndexVersionRecords(pattern string) (r []string) {
+func GetLatestVersionSha1() string {
+	n := GetIndexVersionCount()
+	if n == 0 {
+		return ""
+	}
+	return ParseVersion(GetIndexVersionAt(n - 1)).Sha1
+}
+
+func MatchVersion(pattern string, version Version) bool {
+	return strings.HasPrefix(version.Sha1, pattern) || strings.HasPrefix(version.Timestamp, pattern)
+}
+
+func FindIndexVersions(pattern string) (r []string) {
 	f, err := os.Open("index")
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -127,7 +144,7 @@ func FindIndexVersionRecords(pattern string) (r []string) {
 	}
 	defer f.Close()
 
-	buffer := make([]byte, VERSION_RECORD_LEN)
+	buffer := make([]byte, VERSION_LEN)
 	for {
 		_, err := io.ReadFull(f, buffer)
 		if err != nil {
@@ -138,8 +155,8 @@ func FindIndexVersionRecords(pattern string) (r []string) {
 			}
 		}
 
-		v := string(buffer[:VERSION_RECORD_LEN- 1])
-		if MatchVersionRecord(pattern, v) {
+		v := string(buffer[:VERSION_LEN- 1])
+		if MatchVersion(pattern, ParseVersion(v)) {
 			r = append(r, v)
 		}
 	}
@@ -147,17 +164,13 @@ func FindIndexVersionRecords(pattern string) (r []string) {
 
 func ResolveVersions(pattern string) []string {
 	if strings.HasPrefix(pattern, "v") {
-		return []string{FindIndexVersionRecordAt(pattern[1:])[:DIGEST_LEN]}
+		return []string{FindIndexVersionAt(pattern[1:])}
 	} else {
-		var versions []string
-		for _, v := range FindIndexVersionRecords(pattern) {
-			versions = append(versions, v[:DIGEST_LEN])
-		}
-		return versions
+		return FindIndexVersions(pattern)
 	}
 }
 
-func ResolveVersion(pattern string) string {
+func ResolveVersionSha1(pattern string) string {
 	versions := ResolveVersions(pattern)
 	if len(versions) == 0 {
 		Errorf("未找到对应的版本：%s", pattern)
@@ -165,53 +178,37 @@ func ResolveVersion(pattern string) string {
 	if len(versions) > 1 {
 		Errorf("找到多个版本，请输入更精确的版本号：%s", pattern)
 	}
-	return versions[0]
+	return ParseVersion(versions[0]).Sha1
 }
 
-func ToVersionSnapshot(fileObjects []FileObject) string {
-	var buffer bytes.Buffer
-	for _, f := range fileObjects {
-		buffer.WriteString(f.DataDigest)
-		buffer.WriteString(" ")
-		buffer.WriteString(f.MetadataDigest)
-		buffer.WriteString(" ")
-		buffer.WriteString(f.Path)
-		buffer.WriteString("\n")
-	}
-	return buffer.String()
-}
-
-func GetVersionFileObjects(version string) (files []FileObject) {
+func GetVersionFiles(version string) (files []FileMetadata) {
 	data, err := ioutil.ReadFile(GetObjectPath(version))
 	if err != nil {
-		Errorf("GetVersionFileObjects: %v", err)
+		Errorf("GetVersionFiles: %v", err)
 	}
-	for _, line := range strings.Split(string(data[:len(data)-1]), "\n") {
-		files = append(files, FileObject{Path: line[82:], DataDigest: line[:40], MetadataDigest: line[41:81]})
-	}
-	return files
+	return ParseVersionObject(string(data))
 }
 
-func WriteVersionFile(id string, snapshot string) {
+func WriteVersionObject(id string, snapshot string) {
 	path := GetObjectPath(id)
 	if err := os.MkdirAll(filepath.Dir(path), os.ModeDir|0774); err != nil {
-		Errorf("AddVersionRecordToIndex: %v", err)
+		Errorf("WriteVersionObject: %v", err)
 	}
 	if err := ioutil.WriteFile(path, []byte(snapshot), 0644); err != nil {
-		Errorf("AddVersionRecordToIndex: %v", err)
+		Errorf("WriteVersionObject: %v", err)
 	}
 }
 
-func GetFileObjects(root string) []FileObject {
-	var files FileObjectSlice
+func GetFiles(root string) []FileMetadata {
+	var files FileMetadataSlice
 	filepath.Walk(root, func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
-			Errorf("GetFileObjects: %v", err)
+			Errorf("GetFiles: %v", err)
 		}
 
 		p, err := filepath.Rel(root, path)
 		if err != nil {
-			Errorf("GetFileObjects: %v", err)
+			Errorf("GetFiles: %v", err)
 		}
 		if p == "." {
 			return nil
@@ -220,10 +217,9 @@ func GetFileObjects(root string) []FileObject {
 
 		if fi.IsDir() {
 			p = p + "/"
-			files = append(files, FileObject{Path: p, MetadataDigest: EMPTY_DIGEST, DataDigest: EMPTY_DIGEST})
+			files = append(files, FileMetadata{Path: p, ModTime: fi.ModTime().Format(ISO8601), Size: EMPTY_SIZE, Sha1: EMPTY_SHA1})
 		} else {
-			fmd := GetFileMetadataDigest(p, fi)
-			files = append(files, FileObject{Path: p, MetadataDigest: fmd})
+			files = append(files, FileMetadata{Path: p, ModTime: fi.ModTime().Format(ISO8601), Size:fmt.Sprintf("%19d", fi.Size())})
 		}
 
 		return nil
@@ -232,26 +228,15 @@ func GetFileObjects(root string) []FileObject {
 	return files
 }
 
-func GetRefFileObjects() []FileObject {
-	root := GetRef();
-	fileObjects := GetFileObjects(root)
+func GetRefFiles() []FileMetadata {
+	root := GetRef()
+	files := GetFiles(root)
 
-	n := GetIndexVersionRecordCount()
-	if n > 0 {
-		lastVersion := GetIndexVersionAt(n - 1)
-		lastVersionFileObjects := GetVersionFileObjects(lastVersion)
-		FastDigestFileObjects(fileObjects, lastVersionFileObjects)
+	if v := GetLatestVersionSha1(); v != "" {
+		FastGetFilesSha1(files, GetVersionFiles(v))
 	}
 
-	DigestFileObjects(root, fileObjects)
+	GetFilesSha1(root, files)
 
-	return fileObjects
-}
-
-func MatchVersion(pattern string, version string) bool  {
-	return strings.HasPrefix(version, pattern)
-}
-
-func MatchVersionRecord(pattern string, record string) bool {
-	return MatchVersion(pattern, record[:40]) || MatchVersion(pattern, record[41:])
+	return files
 }

@@ -4,15 +4,16 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
-	"sort"
+	"time"
 )
 
 const MAX_GOS = 4
 
-func IsObjectExist(id string) bool {
-	if _, err := os.Stat(GetObjectPath(id)); err != nil {
+func IsObjectExist(objectSha1 string) bool {
+	if _, err := os.Stat(GetObjectPath(objectSha1)); err != nil {
 		if os.IsNotExist(err) {
 			return false
 		} else {
@@ -22,140 +23,124 @@ func IsObjectExist(id string) bool {
 	return true
 }
 
-func CopyObject(id string, w *os.File)  {
-	r, err := os.Open(GetObjectPath(id))
-	if err != nil {
-		Errorf("CopyObject: %v", err)
-	}
-	defer r.Close()
-
-	if _, err = io.Copy(w, r); err != nil {
-		Errorf("CopyObject: %v", err)
-	}
-}
-
-func FastDigestFileObjects(fileObjects []FileObject, cachedFileObjects []FileObject)  {
-	for i := range fileObjects {
-		f := SearchFileObjects(cachedFileObjects, fileObjects[i].Path)
-		if f != nil && f.MetadataDigest == fileObjects[i].MetadataDigest {
-			fileObjects[i].DataDigest = f.DataDigest
-		}
-	}
-}
-
-func DigestFileObjects(root string, fileObjects []FileObject) {
+func CopyObjects(files []FileMetadata) {
 	var wg sync.WaitGroup
 	sem := make(chan int, MAX_GOS)
-	for i := range fileObjects {
-		f := &fileObjects[i]
-		if f.MetadataDigest == "" || f.DataDigest == "" {
-			sem <- 1
-			wg.Add(1)
-			go func() {
-				DigestFileObject(root, f)
-				wg.Done()
-				<-sem
-			}()
-		}
+	for i := range files {
+		sem <- 1
+		wg.Add(1)
+		go func(f *FileMetadata) {
+			CopyObject(f)
+			wg.Done()
+			<-sem
+		}(&files[i])
 	}
 	wg.Wait()
 	close(sem)
 }
 
-func DigestFileObject(root string, f *FileObject)  {
-	if strings.HasSuffix(f.Path, "/") {
-		f.MetadataDigest = EMPTY_DIGEST
-		f.DataDigest = EMPTY_DIGEST
+func CopyObject(file *FileMetadata) {
+	if strings.HasSuffix(file.Path, "/") {
+		return
+	}
+	if IsObjectExist(file.Sha1) {
+		Verbosef("文件已存在： %s %s\n", file.Sha1, file.Path)
 		return
 	}
 
-	path := filepath.Join(root, f.Path)
-	if f.MetadataDigest == "" {
-		fi, err := os.Stat(path)
-		if err != nil {
-			Errorf("DigestFileObject: %v", err)
-		}
-		f.MetadataDigest = GetFileMetadataDigest(f.Path, fi)
+	src := filepath.Join(GetRef(), file.Path)
+	dst := GetObjectPath(file.Sha1)
+	CopyFile(src, dst)
+
+	Verbosef("保存成功： %s\n", file.Path)
+}
+
+func WriteObjectTo(objectSha1 string, w *os.File) {
+	r, err := os.Open(GetObjectPath(objectSha1))
+	if err != nil {
+		Errorf("WriteObjectTo: %v", err)
 	}
-	if f.DataDigest == "" {
-		f.DataDigest = GetFileDataDigest(path)
+	defer r.Close()
+
+	if _, err = io.Copy(w, r); err != nil {
+		Errorf("WriteObjectTo: %v", err)
 	}
 }
 
-func SearchFileObjects(fileObjects []FileObject, path string) *FileObject {
-	if len(fileObjects) == 0 {
+func FastGetFilesSha1(files []FileMetadata, sha1Files []FileMetadata) {
+	for i := range files {
+		f := SearchFile(sha1Files, files[i].Path)
+		if f != nil && f.ModTime == files[i].ModTime && f.Size == files[i].Size {
+			files[i].Sha1 = f.Sha1
+		}
+	}
+}
+
+func GetFilesSha1(root string, files []FileMetadata) {
+	var wg sync.WaitGroup
+	sem := make(chan int, MAX_GOS)
+	for i := range files {
+		f := &files[i]
+		if f.Sha1 != "" {
+			continue
+		}
+		if strings.HasSuffix(f.Path, "/") {
+			f.Sha1 = EMPTY_SHA1
+			continue
+		}
+		sem <- 1
+		wg.Add(1)
+		go func(root string, f *FileMetadata) {
+			f.Sha1 = GetFileSha1(filepath.Join(root, f.Path))
+			wg.Done()
+			<-sem
+		}(root, f)
+	}
+	wg.Wait()
+	close(sem)
+}
+
+func SearchFile(files []FileMetadata, path string) *FileMetadata {
+	if len(files) == 0 {
 		return nil
 	}
 
 	start := 0
-	end := len(fileObjects)
+	end := len(files)
 	for start <= end {
-		mid := start + (end - start) / 2
-		if fileObjects[mid].Path < path {
+		mid := start + (end-start)/2
+		if files[mid].Path < path {
 			start = mid + 1
-		} else if fileObjects[mid].Path > path {
+		} else if files[mid].Path > path {
 			end = mid - 1
 		} else {
-			return &fileObjects[mid]
+			return &files[mid]
 		}
 	}
 	return nil
 }
 
-func DiffFileObjects(from []FileObject, to []FileObject) []DiffFileObject {
-	var diffFileObjects DiffFileObjectSlice
+func DiffFiles(from []FileMetadata, to []FileMetadata) []DiffFileMetadata {
+	var diffFileObjects DiffFileMetadataSlice
 	for _, f := range to {
-		pf := SearchFileObjects(from, f.Path)
-		if pf == nil {
-			diffFileObjects = append(diffFileObjects, DiffFileObject{Type: "+", FileObject: f})
-		} else if pf.DataDigest != f.DataDigest {
-			diffFileObjects = append(diffFileObjects, DiffFileObject{Type: "*", FileObject: f})
+		file := SearchFile(from, f.Path)
+		if file == nil {
+			diffFileObjects = append(diffFileObjects, DiffFileMetadata{Type: "+", FileMetadata: f})
+		} else if file.Sha1 != f.Sha1 {
+			diffFileObjects = append(diffFileObjects, DiffFileMetadata{Type: "*", FileMetadata: f})
 		}
 	}
 	for _, f := range from {
-		pf := SearchFileObjects(to, f.Path)
-		if pf == nil {
-			diffFileObjects = append(diffFileObjects, DiffFileObject{Type: "-", FileObject: f})
+		file := SearchFile(to, f.Path)
+		if file == nil {
+			diffFileObjects = append(diffFileObjects, DiffFileMetadata{Type: "-", FileMetadata: f})
 		}
 	}
 	sort.Sort(diffFileObjects)
 	return diffFileObjects
 }
 
-func CopyFileObjects(fileObjects []FileObject)  {
-	var wg sync.WaitGroup
-	sem := make(chan int, MAX_GOS)
-	for _, f := range fileObjects {
-		sem <- 1
-		wg.Add(1)
-		go func(f FileObject) {
-			CopyFileObject(f)
-			wg.Done()
-			<-sem
-		}(f)
-	}
-	wg.Wait()
-	close(sem)
-}
-
-func CopyFileObject(f FileObject) {
-	id := f.DataDigest
-	if strings.HasSuffix(f.Path, "/") {
-		return
-	}
-	if IsObjectExist(id) {
-		Verbosef("copy & skip %s\n", f.Path)
-		return
-	}
-
-	src := filepath.Join(GetRef(), f.Path)
-	dst := GetObjectPath(id)
-	CopyFile(src, dst)
-
-	Verbosef("copy %s\n", f.Path)
-}
-
-func CopyFile(src string, dst string)  {
+func CopyFile(src string, dst string) {
 	if err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0774); err != nil {
 		Errorf("Copy: %v", err)
 	}
@@ -174,5 +159,10 @@ func CopyFile(src string, dst string)  {
 
 	if _, err = io.Copy(w, r); err != nil {
 		Errorf("Copy: %v", err)
+	}
+
+	// ignore error
+	if fi, err := r.Stat(); err == nil {
+		os.Chtimes(dst, time.Now(), fi.ModTime())
 	}
 }

@@ -14,6 +14,6 @@ func Errorf(format string, a ...interface{}) {
 
 func Verbosef(format string, a ...interface{}) {
 	if Verbose {
-		fmt.Printf(format, a...)
+		fmt.Fprintf(os.Stdout, format, a...)
 	}
 }
