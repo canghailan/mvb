@@ -102,7 +102,7 @@ func executeBackupCommand() {
 		mvb.Verbosef("版本已存在： %s\n", versionSha1)
 	}
 
-	println(versionSha1)
+	mvb.Println(versionSha1)
 }
 
 func executeRestoreCommand() {
@@ -183,10 +183,10 @@ func executeListCommand() {
 		mvb.WriteReverseIndexTo(os.Stdout)
 	} else if strings.HasPrefix(pattern, "v") {
 		r := mvb.GetIndexVersionAt(mvb.ParseIndexedVersion(pattern))
-		println(r)
+		mvb.Println(r)
 	} else {
 		for _, r := range mvb.FindIndexVersions(pattern) {
-			println(r)
+			mvb.Println(r)
 		}
 	}
 }
@@ -211,7 +211,7 @@ func executeGetCommand() {
 	if strings.HasSuffix(path, "/") {
 		for _, f := range files {
 			if strings.HasPrefix(f.Path, path) && f.Path != path {
-				print(mvb.StringifyFileMetadata(f))
+				mvb.Print(mvb.StringifyFileMetadata(f))
 			}
 		}
 		return
@@ -269,8 +269,8 @@ func executePreviewCommand() {
 	version := mvb.StringifyVersionObject(files)
 	versionSha1 := mvb.Sha1([]byte(version))
 
-	println(version)
-	println(versionSha1)
+	mvb.Println(version)
+	mvb.Println(versionSha1)
 }
 
 func executeCheckCommand() {
@@ -295,7 +295,7 @@ func executeCheckCommand() {
 			s2 := mvb.GetFileSha1(path)
 			mvb.Verbosef("检查：%s\n", path)
 			if s1 != s2 {
-				println(path)
+				mvb.Println(path)
 			}
 			wg.Done()
 			<-sem
@@ -331,7 +331,7 @@ func executeGcCommand() {
 
 		s := p[:2] + p[3:]
 		if _, ok := objects[s]; !ok {
-			println(s)
+			mvb.Println(s)
 			mvb.Verbosef("删除：%s\n", path)
 			if err := os.Remove(path); err != nil {
 				mvb.Errorf("%v", err)
